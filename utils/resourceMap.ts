@@ -1,5 +1,5 @@
 // File: utils/resourceMap.ts
-import { universiteBejaiaData, Resource, Module, YearData, Specialty, Semester } from '@/constants/Data'; // Adjust path if Data.ts is elsewhere
+import { universiteBejaiaData, Resource, Module, YearData, Specialty, Semester } from '../constants/Data'; // Adjust path if Data.ts is elsewhere
 
 export interface ResourceMapEntry {
     resource: Resource;

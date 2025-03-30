@@ -1,573 +1,1006 @@
 // File: app/auth.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
+  Alert,
+  ActivityIndicator,
   View,
   Text,
   TextInput,
   TouchableOpacity,
+  ScrollView,
+  Switch,
+  Image,
   StyleSheet,
   Platform,
-  ActivityIndicator,
-  Alert,
-  Image,
   Dimensions,
-  Switch,
-  ScrollView,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import RNPickerSelect from 'react-native-picker-select';
+import * as Haptics from 'expo-haptics';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-// --- Adjust these import paths ---
-import { auth, db } from '@/firebaseConfig';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { storeUserData, UserData } from '@/utils/storage';
-import { universiteBejaiaData } from '@/constants/Data';
-// --- ---
+import { doc, setDoc, getDoc, serverTimestamp, collection, getDocs, query, where } from 'firebase/firestore';
 
-// --- Define Colors OUTSIDE the style functions ---
-const lightColors = {
-    background: '#f0f4f8',
-    cardBackground: '#ffffff',
-    inputBackground: '#ffffff',
-    inputBorder: '#d1d5db',
-    text: '#1f2937',
-    textSecondary: '#6b7280',
-    placeholderText: '#9ca3af',
-    tint: Colors.light.tint ?? '#3b82f6', // Fallback tint
-    border: '#e5e7eb',
-    disabledText: '#9ca3af',
-    disabledBackground: '#e5e7eb',
-    disabledBorder: '#d1d5db',
-    success: Colors.success ?? '#16a34a',
-    danger: Colors.danger ?? '#dc2626',
-    ...Colors.light // Spread overrides from Colors.light
+// Adjust these import paths as needed
+import { auth, db } from '../firebaseConfig';
+import { Colors } from '../constants/Colors';
+import { useColorScheme } from '../hooks/useColorScheme';
+import { storeUserData, UserData } from '../utils/storage';
+
+// Default colors (defined at top level)
+const baseLightColors = {
+  background: '#fff',
+  cardBackground: '#f8f8f8',
+  text: '#222',
+  textSecondary: '#666',
+  tint: '#2f95dc',
+  border: '#ccc',
+  danger: '#dc3545',
+  inputBackground: '#fff',
+  inputBorder: '#ccc',
+  placeholderText: '#999',
+  disabledBackground: '#cccccc',
+  disabledText: '#aaaaaa',
+  success: '#28a745',
 };
-const darkColors = {
-    background: '#111827',
-    cardBackground: '#1f2937',
-    inputBackground: '#374151',
-    inputBorder: '#4b5563',
-    text: '#f9fafb',
-    textSecondary: '#9ca3af',
-    placeholderText: '#6b7280',
-    tint: Colors.dark.tint ?? '#60a5fa', // Fallback tint
-    border: '#374151',
-    disabledText: '#6b7280',
-    disabledBackground: '#4b5563',
-    disabledBorder: '#6b7280',
-    success: Colors.success ?? '#22c55e',
-    danger: Colors.danger ?? '#ef4444',
-    ...Colors.dark // Spread overrides from Colors.dark
+
+const baseDarkColors = {
+  background: '#121212',
+  cardBackground: '#1e1e1e',
+  text: '#eee',
+  textSecondary: '#bbb',
+  tint: '#4aa2e5',
+  border: '#333',
+  danger: '#e54d5d',
+  inputBackground: '#1a1a1a',
+  inputBorder: '#333',
+  placeholderText: '#888',
+  disabledBackground: '#4d4d4d',
+  disabledText: '#808080',
+  success: '#34c759',
 };
-// --- End Color Definitions ---
 
+const defaultColors = {
+  light: { ...baseLightColors },
+  dark: { ...baseDarkColors },
+};
 
-// --- Main AuthScreen Component ---
 export default function AuthScreen() {
-  const colorScheme = useColorScheme() ?? 'light';
-  // Generate styles using the colors defined above
-  const colors = colorScheme === 'dark' ? darkColors : lightColors;
-  const styles = getAuthStyles(colorScheme, colors); // Pass colors object
-  const pickerStyles = getPickerStyles(colorScheme, colors); // Pass colors object
+  // Ensure colorScheme is always 'light' or 'dark'
+  const rawColorScheme = useColorScheme();
+  const colorScheme = (rawColorScheme === 'dark' ? 'dark' : 'light') as 'light' | 'dark';
+
+  // Get theme colors with fallback to defaultColors
+  const themeColors = Colors[colorScheme] ?? defaultColors[colorScheme];
+
+  // Define colors with fallback logic
+  const colors = {
+    background: themeColors.background ?? defaultColors[colorScheme].background,
+    cardBackground: themeColors.cardBackground ?? defaultColors[colorScheme].cardBackground,
+    text: themeColors.text ?? defaultColors[colorScheme].text,
+    textSecondary: themeColors.textSecondary ?? defaultColors[colorScheme].textSecondary,
+    tint: themeColors.tint ?? defaultColors[colorScheme].tint,
+    border: themeColors.border ?? defaultColors[colorScheme].border,
+    danger: themeColors.danger ?? defaultColors[colorScheme].danger,
+    success: themeColors.success ?? defaultColors[colorScheme].success,
+    inputBackground: themeColors.inputBackground ?? defaultColors[colorScheme].inputBackground,
+    inputBorder: themeColors.inputBorder ?? defaultColors[colorScheme].inputBorder,
+    placeholderText: themeColors.placeholderText ?? defaultColors[colorScheme].placeholderText,
+    disabledBackground: themeColors.disabledBackground ?? defaultColors[colorScheme].disabledBackground,
+    disabledText: themeColors.disabledText ?? defaultColors[colorScheme].disabledText,
+  };
+
+  const styles = getAuthStyles(colorScheme, colors);
+  const pickerStyles = getPickerStyles(colorScheme, colors);
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  // ... (Rest of the state variables remain the same) ...
-  const [activeTab, setActiveTab] = useState<'login' | 'register'>( (params.tab === 'register' ? 'register' : 'login'));
+  // State
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>(
+    params.tab === 'register' ? 'register' : 'login'
+  );
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [regFullName, setRegFullName] = useState('');
   const [regMatricule, setRegMatricule] = useState('');
-  const [regYear, setRegYear] = useState<string | null>(null);
-  const [regSpecialty, setRegSpecialty] = useState<string | null>(null);
+  const [regYear, setRegYear] = useState<string>(''); // Changed from null to empty string
+  const [regSpecialty, setRegSpecialty] = useState<string>(''); // Changed from null to empty string
+  const [regSection, setRegSection] = useState<string>(''); // Changed from null to empty string
+  const [regGroup, setRegGroup] = useState<string>(''); // Changed from null to empty string
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regPhone, setRegPhone] = useState('');
-  const [regGroup, setRegGroup] = useState('');
   const [regLoading, setRegLoading] = useState(false);
-  const [regSpecialtyOptions, setRegSpecialtyOptions] = useState<{ label: string; value: string }[]>([]);
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
+  const [regSpecialtyOptions, setRegSpecialtyOptions] = useState<
+    { label: string; value: string }[]
+  >([]);
+  const [isDarkVisual, setIsDarkVisual] = useState(colorScheme === 'dark');
+  const [firebaseError, setFirebaseError] = useState<string | null>(null);
+  const [yearsLoading, setYearsLoading] = useState(true);
+  const [yearsError, setYearsError] = useState<string | null>(null);
+  const [specialtiesLoading, setSpecialtiesLoading] = useState(false);
+  const [specialtiesError, setSpecialtiesError] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
 
-
-  // --- Dropdown Options ---
-  const yearOptions = React.useMemo(() => Object.keys(universiteBejaiaData).map(year => ({ label: year, value: year })), []);
-
+  // Check Firebase Initialization
   useEffect(() => {
-    let specs: string[] = [];
-    if (regYear && universiteBejaiaData[regYear]) {
-      specs = Object.keys(universiteBejaiaData[regYear]);
+    if (!auth || !db) {
+      const errorMsg =
+        "Service d'authentification indisponible. Vérifiez la configuration Firebase.";
+      console.error('Firebase services (auth or db) not initialized!');
+      setFirebaseError(errorMsg);
     }
-    setRegSpecialtyOptions(specs.map(s => ({ label: s, value: s })));
-    if (regSpecialty && !specs.includes(regSpecialty)) {
-         setRegSpecialty(null);
-    }
+  }, []);
+
+  // Fetch Years from the `years` Collection
+  useEffect(() => {
+    const fetchYears = async () => {
+      if (!db) {
+        setYearsError('Base de données non initialisée.');
+        setYearsLoading(false);
+        return;
+      }
+      try {
+        setYearsLoading(true);
+        setYearsError(null);
+        const yearsRef = collection(db, 'years');
+        const yearsSnapshot = await getDocs(yearsRef);
+        const yearsList: { label: string; value: string; order: number }[] = [];
+        yearsSnapshot.forEach(doc => {
+          const data = doc.data();
+          yearsList.push({
+            label: data.name || doc.id,
+            value: doc.id,
+            order: data.order || 0,
+          });
+        });
+        yearsList.sort((a, b) => a.order - b.order);
+        console.log('Fetched years:', yearsList);
+        if (yearsList.length === 0) {
+          setYearsError('Aucune année trouvée dans la base de données.');
+        }
+        setYearOptions(yearsList.map(year => ({
+          label: year.label,
+          value: year.value,
+        })));
+      } catch (error: any) {
+        console.error('Error fetching years from Firestore:', error);
+        setYearsError('Impossible de charger les années. Vérifiez votre connexion.');
+      } finally {
+        setYearsLoading(false);
+      }
+    };
+    fetchYears();
+  }, []);
+
+  // Fetch Specialties based on selected year using a `where` clause
+  useEffect(() => {
+    const fetchSpecialties = async () => {
+      if (!regYear || !db) {
+        setRegSpecialtyOptions([]);
+        setSpecialtiesError(null);
+        setSpecialtiesLoading(false);
+        return;
+      }
+      try {
+        setSpecialtiesLoading(true);
+        setSpecialtiesError(null);
+        // Corrected collection name from 'specialities' to 'specialties'
+        const specialtiesRef = collection(db, 'specialties');
+        const q = query(specialtiesRef, where('yearId', '==', regYear));
+        const specialtiesSnapshot = await getDocs(q);
+        console.log(`Total specialties found for year ${regYear}: ${specialtiesSnapshot.size}`);
+
+        const specialties: { label: string; value: string }[] = [];
+        specialtiesSnapshot.forEach(doc => {
+          const data = doc.data();
+          console.log(`Specialty ${doc.id} data:`, data);
+          const label = (data.name || doc.id).replace(/-/g, ' ');
+          specialties.push({
+            label: label,
+            value: doc.id,
+          });
+        });
+        console.log('Fetched specialties for year', regYear, ':', specialties);
+        if (specialties.length === 0) {
+          setSpecialtiesError('Aucune spécialité trouvée pour cette année. Vérifiez les données dans Firestore.');
+        }
+        setRegSpecialtyOptions(specialties);
+        if (regSpecialty && !specialties.some(s => s.value === regSpecialty)) {
+          setRegSpecialty('');
+        }
+      } catch (error: any) {
+        console.error('Error fetching specialties from Firestore:', error);
+        setSpecialtiesError('Impossible de charger les spécialités. Vérifiez votre connexion.');
+      } finally {
+        setSpecialtiesLoading(false);
+      }
+    };
+    fetchSpecialties();
   }, [regYear]);
 
-  // --- Authentication Functions (handleLogin, handleRegister remain the same) ---
-    const handleLogin = async () => {
-        if (!loginEmail.trim() || !loginPassword.trim()) {
-        Alert.alert('Erreur', 'Veuillez entrer l\'email et le mot de passe.');
-        return;
-        }
-        setLoginLoading(true);
-        try {
-        const userCredential = await signInWithEmailAndPassword(auth, loginEmail.trim(), loginPassword);
-        const user = userCredential.user;
-        console.log('Login successful:', user.uid);
+  // Section and Group Options
+  const sectionOptions = useMemo(
+    () =>
+      ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map(s => ({
+        label: `Section ${s}`,
+        value: `SECTION_${s}`,
+      })),
+    []
+  );
 
-        const userDocRef = doc(db, "users", user.uid);
-        const userDocSnap = await getDoc(userDocRef);
+  const groupOptions = useMemo(() => {
+    if (!regSection) return [];
+    const sectionLetter = regSection.split('_')[1];
+    if (!sectionLetter) return [];
+    return Array.from({ length: 8 }, (_, i) => {
+      const groupNum = i + 1;
+      const groupVal = `${sectionLetter}${groupNum}`;
+      return { label: `Groupe ${groupVal}`, value: groupVal };
+    });
+  }, [regSection]);
 
-        let userDataToStore: UserData;
+  useEffect(() => {
+    setRegGroup(''); // Reset group when section changes
+  }, [regSection]);
 
-        if (userDocSnap.exists()) {
-            const firestoreData = userDocSnap.data();
-            userDataToStore = {
-            uid: user.uid,
-            email: user.email,
-            fullName: firestoreData.fullName || 'Utilisateur', // Ensure fallback
-            matricule: firestoreData.matricule,
-            year: firestoreData.year,
-            speciality: firestoreData.speciality,
-            phoneNumber: firestoreData.phoneNumber,
-            group: firestoreData.group,
-            profilePicUrl: firestoreData.profilePicUrl || user.photoURL || undefined,
-            };
-        } else {
-            console.warn("Firestore document not found for user:", user.uid);
-            userDataToStore = {
-            uid: user.uid,
-            email: user.email,
-            fullName: user.displayName || user.email?.split('@')[0] || 'Utilisateur', // Robust fallback
-            };
-        }
+  // Form Validation
+  const validateForm = () => {
+    const errors: { [key: string]: string } = {};
+    const tFN = regFullName.trim();
+    const tM = regMatricule.trim();
+    const tE = regEmail.trim();
+    const tP = regPassword.trim();
+    const tPh = regPhone.trim();
 
-        await storeUserData(userDataToStore);
-        router.replace('/(tabs)/'); // Go to home tabs
+    if (!tFN) errors.fullName = 'Nom complet requis.';
+    if (!tM) errors.matricule = 'Numéro d’immatriculation requis.';
+    else if (!/^\d{12}$/.test(tM)) errors.matricule = 'Doit contenir exactement 12 chiffres.';
+    if (!regYear) errors.year = 'Année requise.';
+    if (!regSpecialty) errors.specialty = 'Spécialité requise.';
+    if (!regSection) errors.section = 'Section requise.';
+    if (!regGroup) errors.group = 'Groupe requis.';
+    if (!tE) errors.email = 'Email requis.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tE)) errors.email = 'Email invalide.';
+    if (!tP) errors.password = 'Mot de passe requis.';
+    else if (tP.length < 6) errors.password = 'Minimum 6 caractères.';
+    if (!tPh) errors.phone = 'Numéro de téléphone requis.';
+    else if (!/^0[5-7]\d{8}$/.test(tPh)) errors.phone = 'Format invalide (ex: 06XXXXXXXX).';
 
-        } catch (error: any) {
-        console.error('Login error:', error.code, error.message);
-        let errorMessage = 'Email ou mot de passe incorrect.';
-        if (error.code === 'auth/invalid-email') errorMessage = 'Format de l\'email invalide.';
-        if (error.code === 'auth/too-many-requests') errorMessage = "Trop de tentatives. Réessayez plus tard.";
-        if (error.code === 'auth/network-request-failed') errorMessage = "Erreur réseau. Vérifiez votre connexion.";
-        Alert.alert('Erreur de Connexion', errorMessage);
-        } finally {
-        setLoginLoading(false);
-        }
-    };
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
-    const handleRegister = async () => {
-        const trimmedFullName = regFullName.trim();
-        const trimmedMatricule = regMatricule.trim();
-        const trimmedEmail = regEmail.trim();
-        const trimmedPassword = regPassword.trim();
-        const trimmedPhone = regPhone.trim();
-        const trimmedGroup = regGroup.trim();
+  // Authentication Functions
+  const handleLogin = async () => {
+    if (firebaseError || !auth || !db) {
+      Alert.alert('Erreur Service', firebaseError || 'Service indisponible.');
+      return;
+    }
+    if (!loginEmail.trim() || !loginPassword.trim()) {
+      Alert.alert('Champs Requis', 'Veuillez entrer votre email et mot de passe.');
+      return;
+    }
+    setLoginLoading(true);
+    try {
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        loginEmail.trim(),
+        loginPassword
+      );
+      const user = userCredential?.user;
+      if (!user) throw new Error('Connexion réussie mais données utilisateur non trouvées.');
 
-        if (!trimmedFullName || !trimmedMatricule || !regYear || !regSpecialty || !trimmedEmail || !trimmedPassword || !trimmedPhone) {
-        Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires (*).');
-        return;
-        }
-        if (trimmedPassword.length < 6) {
-            Alert.alert('Erreur', 'Le mot de passe doit contenir au moins 6 caractères.');
-            return;
-        }
-        if (!/^\d{12}$/.test(trimmedMatricule)) {
-            Alert.alert('Erreur', 'Le numéro d\'immatriculation doit contenir 12 chiffres.');
-            return;
-        }
-        if (!/^0[5-7]\d{8}$/.test(trimmedPhone)) {
-            Alert.alert('Erreur', 'Format du numéro de téléphone invalide (Ex: 0XXXXXXXXX).');
-            return;
-        }
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+      let userDataToStore: UserData;
+      const defaultName = user.email?.split('@')[0] || 'Utilisateur';
 
-        setRegLoading(true);
-        try {
-        const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
-        const user = userCredential.user;
-        console.log('Registration successful:', user.uid);
-
-        const userDataForFirestore = {
-            uid: user.uid, fullName: trimmedFullName, matricule: trimmedMatricule, year: regYear, speciality: regSpecialty, email: trimmedEmail.toLowerCase(), phoneNumber: trimmedPhone, group: trimmedGroup || null, createdAt: serverTimestamp(), profilePicUrl: null,
+      if (userDocSnap.exists()) {
+        const d = userDocSnap.data();
+        userDataToStore = {
+          uid: user.uid,
+          email: user.email ?? null,
+          fullName: d?.fullName || user.displayName || defaultName,
+          matricule: d?.matricule || null,
+          year: d?.year || null,
+          speciality: d?.speciality || null,
+          phoneNumber: d?.phoneNumber || null,
+          section: d?.section || null,
+          group: d?.group || null,
+          profilePicUrl: d?.profilePicUrl || user.photoURL || null,
         };
+        console.log('Login: Found Firestore data for user:', user.uid);
+      } else {
+        console.warn(`Login: No Firestore document found for user: ${user.uid}. Using basic info.`);
+        userDataToStore = {
+          uid: user.uid,
+          email: user.email ?? null,
+          fullName: user.displayName || defaultName,
+          matricule: null,
+          year: null,
+          speciality: null,
+          phoneNumber: null,
+          section: null,
+          group: null,
+          profilePicUrl: user.photoURL || null,
+        };
+      }
+      await storeUserData(userDataToStore);
+      console.log('Login successful, user data stored.');
 
-        await setDoc(doc(db, "users", user.uid), userDataForFirestore);
-        console.log('User data saved to Firestore');
+      const redirectPath = params?.redirect as string | undefined;
+      router.replace(redirectPath && !redirectPath.includes('/auth') ? redirectPath : '/(tabs)/');
+    } catch (error: any) {
+      console.error('Login Error:', error);
+      let msg = 'Erreur de connexion. Veuillez réessayer.';
+      switch (error.code) {
+        case 'auth/invalid-email':
+          msg = "Format d'email invalide.";
+          break;
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+          msg = 'Email ou mot de passe incorrect.';
+          break;
+        case 'auth/too-many-requests':
+          msg = 'Trop de tentatives. Compte bloqué temporairement.';
+          break;
+        case 'auth/network-request-failed':
+          msg = 'Erreur réseau. Vérifiez votre connexion internet.';
+          break;
+        default:
+          if (error.message) msg = error.message;
+      }
+      Alert.alert('Erreur Connexion', msg);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
 
-        Alert.alert('Inscription Réussie', 'Votre compte a été créé. Vous pouvez maintenant vous connecter.', [
-            { text: 'OK', onPress: () => setActiveTab('login') }
-        ]);
-        setRegFullName(''); setRegMatricule(''); setRegYear(null); setRegSpecialty(null);
-        setRegEmail(''); setRegPassword(''); setRegPhone(''); setRegGroup('');
+  const handleRegister = async () => {
+    if (firebaseError || !auth || !db) {
+      Alert.alert('Erreur Service', firebaseError || 'Service indisponible.');
+      return;
+    }
+    if (!validateForm()) {
+      Alert.alert('Erreur', 'Veuillez corriger les champs invalides.');
+      return;
+    }
 
-        } catch (error: any) {
-        console.error('Registration error:', error.code, error.message);
-        let errorMessage = 'Une erreur est survenue lors de l\'inscription.';
-        if (error.code === 'auth/email-already-in-use') errorMessage = 'Cet email est déjà utilisé.';
-        if (error.code === 'auth/invalid-email') errorMessage = 'Format de l\'email invalide.';
-        if (error.code === 'auth/weak-password') errorMessage = 'Le mot de passe est trop faible (minimum 6 caractères).';
-        if (error.code === 'auth/network-request-failed') errorMessage = "Erreur réseau. Vérifiez votre connexion.";
-        Alert.alert('Erreur d\'Inscription', errorMessage);
-        } finally {
-        setRegLoading(false);
-        }
-    };
+    setRegLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, regEmail.trim(), regPassword.trim());
+      const user = userCredential?.user;
 
-  // --- Theme Toggle (Visual Only) ---
-    const [isDarkVisual, setIsDarkVisual] = useState(colorScheme === 'dark');
-    const toggleThemeSwitch = () => {
-        setIsDarkVisual(previousState => !previousState);
-        Alert.alert("Thème", `Toggle visuel ${!isDarkVisual ? 'Sombre' : 'Clair'}. Nécessite un Context Thème.`);
-        // Real logic: context.setTheme(colorScheme === 'light' ? 'dark' : 'light');
-    };
+      if (!user) throw new Error('La création du compte a échoué, utilisateur non retourné.');
 
+      const userDataForFirestore = {
+        uid: user.uid,
+        fullName: regFullName.trim(),
+        matricule: regMatricule.trim(),
+        year: regYear,
+        speciality: regSpecialty,
+        email: regEmail.trim().toLowerCase(),
+        phoneNumber: regPhone.trim(),
+        section: regSection,
+        group: regGroup,
+        createdAt: serverTimestamp(),
+        profilePicUrl: null,
+      };
+
+      await setDoc(doc(db, 'users', user.uid), userDataForFirestore);
+      console.log('Registration successful, Firestore doc created.');
+
+      Alert.alert('Inscription Réussie', 'Votre compte a été créé. Vous pouvez maintenant vous connecter.', [
+        { text: 'OK', onPress: () => setActiveTab('login') },
+      ]);
+      setRegFullName('');
+      setRegMatricule('');
+      setRegYear('');
+      setRegSpecialty('');
+      setRegSection('');
+      setRegGroup('');
+      setRegEmail('');
+      setRegPassword('');
+      setRegPhone('');
+      setFormErrors({});
+    } catch (error: any) {
+      console.error('Registration Error:', error);
+      let msg = 'Erreur lors de l’inscription.';
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          msg = 'Cette adresse email est déjà utilisée par un autre compte.';
+          break;
+        case 'auth/invalid-email':
+          msg = "Format d'email invalide.";
+          break;
+        case 'auth/weak-password':
+          msg = 'Mot de passe trop faible.';
+          break;
+        case 'auth/network-request-failed':
+          msg = 'Erreur réseau. Vérifiez votre connexion internet.';
+          break;
+        default:
+          if (error.message) msg = error.message;
+      }
+      Alert.alert('Erreur Inscription', msg);
+    } finally {
+      setRegLoading(false);
+    }
+  };
+
+  // Theme Toggle (Placeholder)
+  const toggleThemeSwitch = () => {
+    setIsDarkVisual(p => !p);
+    Alert.alert('Thème', 'Fonctionnalité non implémentée.');
+  };
+
+  // Render Error State for Firebase Initialization
+  if (firebaseError && (!auth || !db)) {
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="warning-outline" size={48} color={colors.danger} />
+        <Text style={styles.errorText}>{firebaseError}</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => router.replace('/auth')}
+        >
+          <Text style={styles.retryButtonText}>Réessayer</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Main Render
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0} // Adjusted for better iOS visibility
     >
       <ScrollView
         style={styles.container}
-        contentContainerStyle={styles.scrollContentContainer}
-        keyboardShouldPersistTaps='handled'
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
       >
         <Stack.Screen options={{ headerShown: false }} />
 
-         {/* Back Button */}
-         {router.canGoBack() && (
-             <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                 <Ionicons name="arrow-back" size={26} color={colors.tint} />
-             </TouchableOpacity>
-         )}
-
-         {/* Theme Toggle */}
+        {/* Header with Back Button and Theme Toggle */}
+        <View style={styles.headerContainer}>
+          {router.canGoBack() && (
+            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={24} color={colors.tint} />
+            </TouchableOpacity>
+          )}
+          {router.canGoBack() && <View style={{ flex: 1 }} />}
           <View style={styles.themeToggleContainer}>
-               <Ionicons name={isDarkVisual ? 'moon' : 'sunny'} size={18} color={colors.textSecondary} style={{marginRight: 5}}/>
-               <Switch
-                   trackColor={{ false: '#767577', true: colors.tint + '80' }}
-                   thumbColor={isDarkVisual ? colors.tint : '#f4f3f4'}
-                   ios_backgroundColor="#3e3e3e"
-                   onValueChange={toggleThemeSwitch}
-                   value={isDarkVisual}
-               />
-           </View>
+            <Switch
+              value={isDarkVisual}
+              onValueChange={toggleThemeSwitch}
+              trackColor={{ false: colors.border, true: colors.tint }}
+              thumbColor={isDarkVisual ? colors.background : colors.textSecondary}
+            />
+          </View>
+        </View>
 
         {/* Logo */}
         <View style={styles.logoContainer}>
-            <Image source={require('@/assets/images/LOGO.png')} style={styles.logo} resizeMode='contain'/>
+          <Image
+            source={require('../assets/images/logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
         </View>
 
-        {/* Card */}
+        {/* Auth Card */}
         <View style={styles.authCard}>
           {/* Tabs */}
-          <View style={styles.tabsContainer}>
+          <View style={styles.tabContainer}>
             <TouchableOpacity
               style={[styles.tabButton, activeTab === 'login' && styles.tabButtonActive]}
               onPress={() => setActiveTab('login')}
-              disabled={activeTab === 'login' || regLoading || loginLoading}
-              activeOpacity={0.7}
+              disabled={loginLoading || regLoading}
             >
-              <Text style={[styles.tabButtonText, activeTab === 'login' && styles.tabButtonTextActive]}>
+              <Text
+                style={[styles.tabText, activeTab === 'login' && styles.tabTextActive]}
+              >
                 Connexion
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.tabButton, activeTab === 'register' && styles.tabButtonActive]}
               onPress={() => setActiveTab('register')}
-              disabled={activeTab === 'register' || regLoading || loginLoading}
-              activeOpacity={0.7}
+              disabled={loginLoading || regLoading}
             >
-              <Text style={[styles.tabButtonText, activeTab === 'register' && styles.tabButtonTextActive]}>
+              <Text
+                style={[styles.tabText, activeTab === 'register' && styles.tabTextActive]}
+              >
                 Inscription
               </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Forms Container */}
+          {/* Form Container */}
           <View style={styles.formContainer}>
             {activeTab === 'login' ? (
-              // --- Login Form ---
               <View style={styles.formInnerContainer}>
-                <Text style={styles.formTitle}>Connexion</Text>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Email</Text>
-                  <TextInput style={styles.input} placeholder="Votre adresse email" placeholderTextColor={colors.placeholderText} keyboardType="email-address" autoCapitalize="none" value={loginEmail} onChangeText={setLoginEmail} textContentType="emailAddress" autoComplete="email" />
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Mot de passe</Text>
-                  <TextInput style={styles.input} placeholder="Votre mot de passe" placeholderTextColor={colors.placeholderText} secureTextEntry value={loginPassword} onChangeText={setLoginPassword} textContentType="password" autoComplete="password" />
-                </View>
-                <TouchableOpacity style={[styles.submitButton, loginLoading && styles.buttonDisabled]} onPress={handleLogin} disabled={loginLoading} activeOpacity={0.7}>
-                  {loginLoading ? <ActivityIndicator color="#fff" /> : (<><FontAwesome name="sign-in" size={20} color="#fff" /><Text style={styles.submitButtonText}>Se connecter</Text></>)}
+                <Text style={styles.formTitle}>Accéder à votre compte</Text>
+                <TextInput
+                  style={[styles.input, formErrors.loginEmail && styles.inputError]}
+                  placeholder="Email *"
+                  placeholderTextColor={colors.placeholderText}
+                  value={loginEmail}
+                  onChangeText={text => {
+                    setLoginEmail(text);
+                    setFormErrors(prev => ({ ...prev, loginEmail: '' }));
+                  }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!loginLoading}
+                />
+                {formErrors.loginEmail && (
+                  <Text style={styles.errorText}>{formErrors.loginEmail}</Text>
+                )}
+                <TextInput
+                  style={[styles.input, formErrors.loginPassword && styles.inputError]}
+                  placeholder="Mot de passe *"
+                  placeholderTextColor={colors.placeholderText}
+                  value={loginPassword}
+                  onChangeText={text => {
+                    setLoginPassword(text);
+                    setFormErrors(prev => ({ ...prev, loginPassword: '' }));
+                  }}
+                  secureTextEntry
+                  editable={!loginLoading}
+                />
+                {formErrors.loginPassword && (
+                  <Text style={styles.errorText}>{formErrors.loginPassword}</Text>
+                )}
+                <TouchableOpacity
+                  style={styles.forgotPasswordButton}
+                  onPress={() => Alert.alert('Mot de Passe Oublié', 'Fonctionnalité à venir.')}
+                >
+                  <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.authButton, loginLoading && styles.buttonDisabled]}
+                  onPress={handleLogin}
+                  disabled={loginLoading}
+                >
+                  {loginLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.authButtonText}>Se Connecter</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             ) : (
-              // --- Register Form ---
               <View style={styles.formInnerContainer}>
-                <Text style={styles.formTitle}>Inscription</Text>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Nom complet *</Text>
-                  <TextInput style={styles.input} placeholder="Votre nom et prénom" value={regFullName} onChangeText={setRegFullName} placeholderTextColor={colors.placeholderText}/>
-                </View>
-                 <View style={styles.inputGroup}>
-                   <Text style={styles.label}>N° Immatriculation *</Text>
-                   <TextInput style={styles.input} placeholder="12 chiffres exacts" keyboardType="numeric" maxLength={12} value={regMatricule} onChangeText={setRegMatricule} placeholderTextColor={colors.placeholderText}/>
-                 </View>
-                 <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Année d'étude *</Text>
-                    <View style={styles.pickerWrapper}>
-                      <RNPickerSelect placeholder={{ label: "Sélectionner année...", value: null }} items={yearOptions} onValueChange={(value) => setRegYear(value)} style={pickerStyles} value={regYear} useNativeAndroidPickerStyle={false} Icon={() => <FontAwesome name="caret-down" size={20} color={colors.placeholderText} style={styles.pickerIcon} />}/>
-                     </View>
-                 </View>
-                 <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Spécialité *</Text>
-                    <View style={styles.pickerWrapper}>
-                      <RNPickerSelect placeholder={{ label: regYear ? "Sélectionner spécialité..." : "Sélectionner l'année d'abord", value: null }} items={regSpecialtyOptions} onValueChange={(value) => setRegSpecialty(value)} style={pickerStyles} value={regSpecialty} disabled={!regYear || regSpecialtyOptions.length === 0} useNativeAndroidPickerStyle={false} Icon={() => <FontAwesome name="caret-down" size={20} color={!regYear || regSpecialtyOptions.length === 0 ? '#ccc' : colors.placeholderText} style={styles.pickerIcon} />}/>
+                <Text style={styles.formTitle}>Créer un nouveau compte</Text>
+                <TextInput
+                  style={[styles.input, formErrors.fullName && styles.inputError]}
+                  placeholder="Nom complet *"
+                  placeholderTextColor={colors.placeholderText}
+                  value={regFullName}
+                  onChangeText={text => {
+                    setRegFullName(text);
+                    setFormErrors(prev => ({ ...prev, fullName: '' }));
+                  }}
+                  editable={!regLoading}
+                />
+                {formErrors.fullName && (
+                  <Text style={styles.errorText}>{formErrors.fullName}</Text>
+                )}
+                <TextInput
+                  style={[styles.input, formErrors.matricule && styles.inputError]}
+                  placeholder="N° Matricule (12 chiffres) *"
+                  placeholderTextColor={colors.placeholderText}
+                  value={regMatricule}
+                  onChangeText={text => {
+                    setRegMatricule(text);
+                    setFormErrors(prev => ({ ...prev, matricule: '' }));
+                  }}
+                  keyboardType="numeric"
+                  maxLength={12}
+                  editable={!regLoading}
+                />
+                {formErrors.matricule && (
+                  <Text style={styles.errorText}>{formErrors.matricule}</Text>
+                )}
+                {/* Year Picker */}
+                <View style={styles.pickerWrapper}>
+                  {yearsLoading ? (
+                    <ActivityIndicator size="small" color={colors.tint} />
+                  ) : yearsError ? (
+                    <View style={styles.errorContainer}>
+                      <Text style={styles.errorText}>{yearsError}</Text>
+                      <TouchableOpacity
+                        style={styles.retryButton}
+                        onPress={() => {
+                          setYearsLoading(true);
+                          setYearsError(null);
+                          const fetchYears = async () => {
+                            try {
+                              const yearsRef = collection(db, 'years');
+                              const yearsSnapshot = await getDocs(yearsRef);
+                              const yearsList: { label: string; value: string; order: number }[] = [];
+                              yearsSnapshot.forEach(doc => {
+                                const data = doc.data();
+                                yearsList.push({
+                                  label: data.name || doc.id,
+                                  value: doc.id,
+                                  order: data.order || 0,
+                                });
+                              });
+                              yearsList.sort((a, b) => a.order - b.order);
+                              console.log('Fetched years (retry):', yearsList);
+                              if (yearsList.length === 0) {
+                                setYearsError('Aucune année trouvée dans la base de données.');
+                              }
+                              setYearOptions(yearsList.map(year => ({
+                                label: year.label,
+                                value: year.value,
+                              })));
+                            } catch (error: any) {
+                              console.error('Retry fetch years failed:', error);
+                              setYearsError('Échec de la récupération des années. Réessayez.');
+                            } finally {
+                              setYearsLoading(false);
+                            }
+                          };
+                          fetchYears();
+                        }}
+                      >
+                        <Text style={styles.retryButtonText}>Réessayer</Text>
+                      </TouchableOpacity>
                     </View>
-                 </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Email *</Text>
-                  <TextInput style={styles.input} placeholder="email@example.com" keyboardType="email-address" autoCapitalize='none' value={regEmail} onChangeText={setRegEmail} placeholderTextColor={colors.placeholderText}/>
+                  ) : (
+                    <RNPickerSelect
+                      onValueChange={value => {
+                        setRegYear(value);
+                        setFormErrors(prev => ({ ...prev, year: '' }));
+                        if (Platform.OS === 'ios') {
+                          Haptics.selectionAsync();
+                        }
+                      }}
+                      items={yearOptions || []}
+                      style={pickerStyles}
+                      value={regYear}
+                      placeholder={{ label: 'Sélectionnez une année *', value: '' }}
+                      Icon={() => <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />}
+                      useNativeAndroidPickerStyle={false}
+                      disabled={regLoading || yearsLoading || !!yearsError}
+                    />
+                  )}
                 </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Mot de passe *</Text>
-                  <TextInput style={styles.input} placeholder="Min. 6 caractères" secureTextEntry value={regPassword} onChangeText={setRegPassword} placeholderTextColor={colors.placeholderText}/>
+                {formErrors.year && (
+                  <Text style={styles.errorText}>{formErrors.year}</Text>
+                )}
+                {/* Specialty Picker */}
+                <View style={styles.pickerWrapper}>
+                  {specialtiesLoading ? (
+                    <ActivityIndicator size="small" color={colors.tint} />
+                  ) : specialtiesError ? (
+                    <View style={styles.errorContainer}>
+                      <Text style={styles.errorText}>{specialtiesError}</Text>
+                      <TouchableOpacity
+                        style={styles.retryButton}
+                        onPress={() => {
+                          setSpecialtiesError(null);
+                          setSpecialtiesLoading(true);
+                          const fetchSpecialties = async () => {
+                            if (!regYear || !db) {
+                              setRegSpecialtyOptions([]);
+                              setSpecialtiesLoading(false);
+                              return;
+                            }
+                            try {
+                              const specialtiesRef = collection(db, 'specialties');
+                              const q = query(specialtiesRef, where('yearId', '==', regYear));
+                              const specialtiesSnapshot = await getDocs(q);
+                              console.log(`Total specialties found for year ${regYear} (retry): ${specialtiesSnapshot.size}`);
+                              const specialties: { label: string; value: string }[] = [];
+                              specialtiesSnapshot.forEach(doc => {
+                                const data = doc.data();
+                                console.log(`Specialty ${doc.id} data (retry):`, data);
+                                const label = (data.name || doc.id).replace(/-/g, ' ');
+                                specialties.push({
+                                  label: label,
+                                  value: doc.id,
+                                });
+                              });
+                              console.log('Fetched specialties for year (retry)', regYear, ':', specialties);
+                              if (specialties.length === 0) {
+                                setSpecialtiesError('Aucune spécialité trouvée pour cette année. Vérifiez les données dans Firestore.');
+                              }
+                              setRegSpecialtyOptions(specialties);
+                              if (regSpecialty && !specialties.some(s => s.value === regSpecialty)) {
+                                setRegSpecialty('');
+                              }
+                            } catch (error: any) {
+                              console.error('Retry fetch specialties failed:', error);
+                              setSpecialtiesError('Échec de la récupération des spécialités. Réessayez.');
+                            } finally {
+                              setSpecialtiesLoading(false);
+                            }
+                          };
+                          fetchSpecialties();
+                        }}
+                      >
+                        <Text style={styles.retryButtonText}>Réessayer</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <RNPickerSelect
+                      onValueChange={value => {
+                        setRegSpecialty(value);
+                        setFormErrors(prev => ({ ...prev, specialty: '' }));
+                        if (Platform.OS === 'ios') {
+                          Haptics.selectionAsync();
+                        }
+                      }}
+                      items={regSpecialtyOptions || []}
+                      style={pickerStyles}
+                      value={regSpecialty}
+                      placeholder={{ label: 'Sélectionnez une spécialité *', value: '' }}
+                      disabled={!regYear || regLoading || yearsLoading || !!yearsError || specialtiesLoading}
+                      Icon={() => <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />}
+                      useNativeAndroidPickerStyle={false}
+                    />
+                  )}
                 </View>
-                <View style={styles.inputGroup}>
-                   <Text style={styles.label}>N° Téléphone *</Text>
-                   <TextInput style={styles.input} placeholder="0XXXXXXXXX" keyboardType="phone-pad" value={regPhone} onChangeText={setRegPhone} placeholderTextColor={colors.placeholderText}/>
+                {formErrors.specialty && (
+                  <Text style={styles.errorText}>{formErrors.specialty}</Text>
+                )}
+                {/* Section Picker */}
+                <View style={styles.pickerWrapper}>
+                  <RNPickerSelect
+                    onValueChange={value => {
+                      setRegSection(value);
+                      setFormErrors(prev => ({ ...prev, section: '' }));
+                      if (Platform.OS === 'ios') {
+                        Haptics.selectionAsync();
+                      }
+                    }}
+                    items={sectionOptions || []}
+                    style={pickerStyles}
+                    value={regSection}
+                    placeholder={{ label: 'Sélectionnez une section *', value: '' }}
+                    disabled={regLoading}
+                    Icon={() => <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />}
+                    useNativeAndroidPickerStyle={false}
+                  />
                 </View>
-                 <View style={styles.inputGroup}>
-                   <Text style={styles.label}>Groupe (Facultatif)</Text>
-                   <TextInput style={styles.input} placeholder="Ex: 1, 12..." value={regGroup} onChangeText={setRegGroup} placeholderTextColor={colors.placeholderText}/>
-                 </View>
-                <TouchableOpacity style={[styles.submitButton, styles.registerButton, regLoading && styles.buttonDisabled]} onPress={handleRegister} disabled={regLoading} activeOpacity={0.7}>
-                  {regLoading ? <ActivityIndicator color="#fff" /> : (<><FontAwesome name="user-plus" size={18} color="#fff" /><Text style={styles.submitButtonText}>Créer un compte</Text></>)}
+                {formErrors.section && (
+                  <Text style={styles.errorText}>{formErrors.section}</Text>
+                )}
+                {/* Group Picker */}
+                <View style={styles.pickerWrapper}>
+                  <RNPickerSelect
+                    onValueChange={value => {
+                      setRegGroup(value);
+                      setFormErrors(prev => ({ ...prev, group: '' }));
+                      if (Platform.OS === 'ios') {
+                        Haptics.selectionAsync();
+                      }
+                    }}
+                    items={groupOptions || []}
+                    style={pickerStyles}
+                    value={regGroup}
+                    placeholder={{ label: 'Sélectionnez un groupe *', value: '' }}
+                    disabled={!regSection || regLoading}
+                    Icon={() => <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />}
+                    useNativeAndroidPickerStyle={false}
+                  />
+                </View>
+                {formErrors.group && (
+                  <Text style={styles.errorText}>{formErrors.group}</Text>
+                )}
+                <TextInput
+                  style={[styles.input, formErrors.email && styles.inputError]}
+                  placeholder="Email *"
+                  placeholderTextColor={colors.placeholderText}
+                  value={regEmail}
+                  onChangeText={text => {
+                    setRegEmail(text);
+                    setFormErrors(prev => ({ ...prev, email: '' }));
+                  }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!regLoading}
+                />
+                {formErrors.email && (
+                  <Text style={styles.errorText}>{formErrors.email}</Text>
+                )}
+                <TextInput
+                  style={[styles.input, formErrors.password && styles.inputError]}
+                  placeholder="Mot de passe (min 6 caractères) *"
+                  placeholderTextColor={colors.placeholderText}
+                  value={regPassword}
+                  onChangeText={text => {
+                    setRegPassword(text);
+                    setFormErrors(prev => ({ ...prev, password: '' }));
+                  }}
+                  secureTextEntry
+                  editable={!regLoading}
+                />
+                {formErrors.password && (
+                  <Text style={styles.errorText}>{formErrors.password}</Text>
+                )}
+                <TextInput
+                  style={[styles.input, formErrors.phone && styles.inputError]}
+                  placeholder="N° Téléphone (ex: 06XXXXXXXX) *"
+                  placeholderTextColor={colors.placeholderText}
+                  value={regPhone}
+                  onChangeText={text => {
+                    setRegPhone(text);
+                    setFormErrors(prev => ({ ...prev, phone: '' }));
+                  }}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  editable={!regLoading}
+                />
+                {formErrors.phone && (
+                  <Text style={styles.errorText}>{formErrors.phone}</Text>
+                )}
+                <TouchableOpacity
+                  style={[styles.authButton, regLoading && styles.buttonDisabled]}
+                  onPress={handleRegister}
+                  disabled={regLoading}
+                >
+                  {regLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.authButtonText}>S’Inscrire</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             )}
           </View>
         </View>
-         {/* Spacer */}
-        <View style={{ height: 40 }} />
+        <View style={{ height: 60 }} />
       </ScrollView>
+      {(loginLoading || regLoading) && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={colors.tint} />
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
 
 // --- Styles ---
-// Moved color definitions outside
-const getAuthStyles = (colorScheme: 'light' | 'dark', colors: typeof lightColors | typeof darkColors) => {
-    const screenWidth = Dimensions.get('window').width;
-    return StyleSheet.create({
-        container: {
-            flex: 1,
-            backgroundColor: colors.background, // Use passed colors
-        },
-        scrollContentContainer: {
-            flexGrow: 1,
-            justifyContent: 'center',
-            paddingHorizontal: 20,
-            paddingVertical: 40,
-        },
-        backButton: {
-            position: 'absolute',
-            top: Platform.OS === 'ios' ? 60 : 40,
-            left: 15,
-            zIndex: 10,
-            padding: 8,
-        },
-        themeToggleContainer: {
-            position: 'absolute',
-            top: Platform.OS === 'ios' ? 60 : 40,
-            right: 15,
-            zIndex: 10,
-            flexDirection: 'row',
-            alignItems: 'center',
-        },
-        logoContainer: {
-            alignItems: 'center',
-            marginBottom: 25,
-            marginTop: 40,
-        },
-        logo: {
-            width: screenWidth * 0.35,
-            height: screenWidth * 0.35,
-            maxWidth: 160,
-            maxHeight: 160,
-        },
-        authCard: {
-            backgroundColor: colors.cardBackground,
-            borderRadius: 18,
-            padding: 25,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 5 },
-            shadowOpacity: colorScheme === 'light' ? 0.15 : 0.25,
-            shadowRadius: 15,
-            elevation: 8,
-            borderWidth: colorScheme === 'light' ? 1 : 0,
-            borderColor: colors.border,
-        },
-        tabsContainer: {
-            flexDirection: 'row',
-            marginBottom: 30,
-            backgroundColor: colors.inputBackground,
-            borderRadius: 10,
-            padding: 4,
-            borderWidth: 1,
-            borderColor: colors.border,
-        },
-        tabButton: {
-            flex: 1,
-            paddingVertical: 12,
-            borderRadius: 8,
-            alignItems: 'center',
-            marginHorizontal: 2,
-        },
-        tabButtonActive: {
-            backgroundColor: colors.tint,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 3,
-            elevation: 2,
-        },
-        tabButtonText: {
-            color: colors.textSecondary,
-            fontWeight: '600',
-            fontSize: 15,
-        },
-        tabButtonTextActive: {
-            color: '#fff',
-        },
-        formContainer: {},
-        formInnerContainer: {
-             paddingTop: 10,
-        },
-        formTitle: {
-            fontSize: 24,
-            fontWeight: 'bold',
-            color: colors.text,
-            textAlign: 'center',
-            marginBottom: 30,
-        },
-        inputGroup: {
-            marginBottom: 18,
-        },
-        label: {
-            fontSize: 13,
-            fontWeight: '500',
-            color: colors.textSecondary,
-            marginBottom: 6,
-            marginLeft: 4,
-        },
-        input: {
-            backgroundColor: colors.inputBackground,
-            borderWidth: 1.5,
-            borderColor: colors.inputBorder,
-            borderRadius: 10,
-            paddingHorizontal: 15,
-            paddingVertical: Platform.OS === 'ios' ? 15 : 13,
-            fontSize: 16,
-            color: colors.text,
-        },
-        pickerWrapper: { // Wrapper for picker styling
-            borderWidth: 1.5,
-            borderColor: colors.inputBorder,
-            borderRadius: 10,
-            backgroundColor: colors.inputBackground,
-            justifyContent: 'center', // Center picker content vertically
-             position: 'relative', // For icon positioning
-        },
-        pickerIcon: {
-             position: 'absolute',
-             right: 15,
-             // top: Platform.OS === 'ios' ? 14 : 17, // Adjust if needed
-             zIndex: 1,
-             pointerEvents: 'none',
-        },
-        submitButton: {
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: colors.tint,
-            paddingVertical: 16,
-            borderRadius: 12,
-            marginTop: 25,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 3 },
-            shadowOpacity: 0.2,
-            shadowRadius: 5,
-            elevation: 4,
-        },
-        registerButton: {
-            backgroundColor: colors.success,
-        },
-        buttonDisabled: {
-            opacity: 0.6,
-        },
-        submitButtonText: {
-            color: '#fff',
-            fontSize: 16,
-            fontWeight: 'bold',
-            marginLeft: 10,
-        },
-        forgotPasswordText: {
-              marginTop: 15,
-              textAlign: 'center',
-              color: colors.tint,
-              fontSize: 14,
-         },
-        // Styles needed for props/components used within this file
-        tintColor: { color: colors.tint },
-        textSecondary: { color: colors.textSecondary },
-        placeholderText: { color: colors.placeholderText },
-    });
-}
+const getAuthStyles = (colorScheme: 'light' | 'dark', colors: Record<string, any>) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    contentContainer: { paddingHorizontal: 20, paddingVertical: 30, flexGrow: 1, justifyContent: 'center' },
+    headerContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      position: 'absolute',
+      top: Platform.OS === 'ios' ? 50 : 30,
+      left: 10,
+      right: 10,
+      zIndex: 1,
+    },
+    backButton: { padding: 10 },
+    themeToggleContainer: { flexDirection: 'row', alignItems: 'center' },
+    logoContainer: { alignItems: 'center', marginBottom: 25, marginTop: 60 },
+    logo: { width: Dimensions.get('window').width * 0.4, height: 120, alignSelf: 'center', marginBottom: 30 },
+    authCard: {
+      backgroundColor: colors.cardBackground,
+      borderRadius: 16,
+      padding: 0,
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.1,
+      shadowRadius: 5,
+      elevation: 4,
+      overflow: 'hidden',
+    },
+    tabContainer: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.inputBackground + '80',
+    },
+    tabButton: {
+      flex: 1,
+      paddingVertical: 14,
+      alignItems: 'center',
+      borderBottomWidth: 3,
+      borderBottomColor: 'transparent',
+    },
+    tabButtonActive: { borderBottomColor: colors.tint },
+    tabText: { fontSize: 16, color: colors.textSecondary, fontWeight: '500' },
+    tabTextActive: { color: colors.tint, fontWeight: 'bold' },
+    formContainer: { paddingHorizontal: 20, paddingVertical: 25 },
+    formInnerContainer: { gap: 12 }, // Reduced gap for better spacing on smaller screens
+    formTitle: { fontSize: 20, fontWeight: '600', color: colors.text, textAlign: 'center', marginBottom: 10 },
+    input: {
+      backgroundColor: colors.inputBackground,
+      borderColor: colors.inputBorder,
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingHorizontal: 15,
+      paddingVertical: Platform.OS === 'ios' ? 14 : 12,
+      fontSize: 16,
+      color: colors.text,
+    },
+    inputError: {
+      borderColor: colors.danger,
+      backgroundColor: colors.danger + '10',
+    },
+    pickerWrapper: { marginVertical: 0 },
+    authButton: {
+      backgroundColor: colors.tint,
+      paddingVertical: 15,
+      borderRadius: 10,
+      alignItems: 'center',
+      marginTop: 15,
+    },
+    buttonDisabled: { backgroundColor: colors.disabledBackground ?? '#cccccc', opacity: 0.7 },
+    authButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+    errorContainer: {
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 10,
+    },
+    errorText: { fontSize: 14, color: colors.danger, textAlign: 'center', marginVertical: 5 },
+    retryButton: { backgroundColor: colors.tint, paddingVertical: 8, paddingHorizontal: 15, borderRadius: 8 },
+    retryButtonText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+    placeholderText: { color: colors.placeholderText },
+    forgotPasswordButton: { alignItems: 'flex-end', marginTop: 5 },
+    forgotPasswordText: { color: colors.tint, fontSize: 14, fontWeight: '500' },
+    loadingOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: colors.background + '80',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+  });
 
-// Picker styles
-const getPickerStyles = (colorScheme: 'light' | 'dark', colors: typeof lightColors | typeof darkColors) => { // Pass colors
-     return StyleSheet.create({
-        inputIOS: {
-            fontSize: 16,
-            paddingVertical: 15, // Match input padding
-            paddingHorizontal: 15,
-            borderWidth: 0, // Border handled by wrapper
-            color: colors.text,
-            paddingRight: 35,
-            backgroundColor: 'transparent', // BG handled by wrapper
-        },
-        inputAndroid: {
-            fontSize: 16,
-            paddingHorizontal: 15,
-            paddingVertical: 13, // Match input padding
-            borderWidth: 0, // Border handled by wrapper
-            color: colors.text,
-            paddingRight: 35,
-            backgroundColor: 'transparent', // BG handled by wrapper
-            // Fix for Android sometimes cutting off text:
-            minHeight: 50, // Ensure minimum height
-        },
-         iconContainer: { // This might not be needed if using pickerIcon style directly
-             // top: Platform.OS === 'ios' ? 16 : 19,
-             // right: 15,
-         },
-         placeholder: {
-             color: colors.placeholderText,
-             fontSize: 16,
-         },
-         // No viewContainer needed if using pickerWrapper in main styles
-         // viewContainer: { ... },
-         disabled: {
-              color: colors.disabledText,
-              backgroundColor: colors.disabledBackground, // Apply to wrapper conditionally?
-           }
-    });
-}
+const getPickerStyles = (colorScheme: 'light' | 'dark', colors: Record<string, any>) =>
+  StyleSheet.create({
+    inputIOS: {
+      fontSize: 16,
+      paddingVertical: 14,
+      paddingHorizontal: 15,
+      borderWidth: 0,
+      color: colors.text,
+      paddingRight: 30,
+      borderRadius: 10,
+    },
+    inputAndroid: {
+      fontSize: 16,
+      paddingHorizontal: 15,
+      paddingVertical: 12,
+      borderWidth: 0,
+      color: colors.text,
+      paddingRight: 30,
+      minHeight: 50,
+    },
+    iconContainer: { top: Platform.OS === 'ios' ? 16 : 18, right: 12 },
+    placeholder: { color: colors.placeholderText, fontSize: 16 },
+    viewContainer: {
+      borderWidth: 1.5,
+      borderColor: colors.inputBorder,
+      borderRadius: 10,
+      backgroundColor: colors.inputBackground,
+      justifyContent: 'center',
+      minHeight: Platform.OS === 'ios' ? 50 : 52,
+      paddingVertical: 0,
+    },
+    disabled: { opacity: 0.5, backgroundColor: colors.disabledBackground ?? '#e9ecef' },
+  });

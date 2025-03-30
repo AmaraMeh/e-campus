@@ -1,57 +1,53 @@
 {
   "expo": {
     "name": "e-campus",
-    "slug": "e-campus",
+    "slug": "e-campus2",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    
-    "splash": { 
+    "newArchEnabled": true,
+    "splash": {
       "image": "./assets/images/splash-icon.png",
-      
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [ 
+    "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.ecampus" 
+      "bundleIdentifier": "com.yourcompany.ecampus",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.yourcompany.ecampus" 
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
-    "plugins": [
-      "expo-router", 
-      
-      [ 
-        "expo-image-picker",
-        {
-          "photosPermission": "L'application demande l'accès à votre galerie pour choisir une photo de profil.",
-          "cameraPermission": "L'application demande l'accès à votre caméra pour prendre une photo de profil."
-          
-        }
+      "package": "com.yourcompany.ecampus",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
       ]
+    },
+    "web": {},
+    "plugins": [
+      "expo-router"
     ],
     "experiments": {
       "typedRoutes": true
     },
-    "extra": { 
-       "eas": {
-         "projectId": "YOUR_EAS_PROJECT_ID" 
-       }
-    }
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "330451e7-6745-4ebf-9d55-7bd33fbac940"
+      }
+    },
+    "owner": "amaramehdi"
   }
 }

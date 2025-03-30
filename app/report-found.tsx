@@ -7,11 +7,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 // --- Adjust Paths ---
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { auth, db, storage } from '@/firebaseConfig';
-import { getUserData } from '@/utils/storage';
-import AuthGuard from '@/app/auth-guard'; // <--- Import Guard ---
+import { Colors } from '../constants/Colors';
+import { useColorScheme } from '../hooks/useColorScheme';
+import { auth, db, storage } from '..//firebaseConfig';
+import { getUserData } from '../utils/storage';
+import AuthGuard from '../app/auth-guard'; // <--- Import Guard ---
 // --- ---
 
 // --- Renamed Content Component ---

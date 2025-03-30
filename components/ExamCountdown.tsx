@@ -1,135 +1,62 @@
 // components/ExamCountdown.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Colors } from '@/constants/Colors'; // Adjust path
-import { useColorScheme } from '@/hooks/useColorScheme'; // Adjust path
+import { Colors } from '../constants/Colors'; // Adjust path
+import { useColorScheme } from '../hooks/useColorScheme'; // Adjust path
+import { Ionicons } from '@expo/vector-icons';
 
-interface TimeLeft {
-  days: number;
-  hours: number;
-  minutes: number;
-  seconds: number;
-}
+interface TimeLeft { days: number; hours: number; minutes: number; seconds: number; }
 
 const ExamCountdown = () => {
   const colorScheme = useColorScheme() ?? 'light';
-  const styles = getCountdownStyles(colorScheme);
+  const colors = colorScheme === 'dark' ? Colors.dark : Colors.light;
+  const styles = getCountdownStyles(colorScheme, colors);
   const targetDate = new Date("2025-04-05T08:00:00"); // April 5th, 2025, 8:00 AM
 
-  const calculateTimeLeft = (): TimeLeft | null => {
-    const difference = +targetDate - +new Date();
-    if (difference <= 0) {
-      return null; // Exam time has passed or is now
-    }
-
-    return {
-      days: Math.floor(difference / (1000 * 60 * 60 * 24)),
-      hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
-      minutes: Math.floor((difference / 1000 / 60) % 60),
-      seconds: Math.floor((difference / 1000) % 60),
-    };
-  };
-
+  const calculateTimeLeft = (): TimeLeft | null => { /* ... (keep calculation logic) ... */ const d = +targetDate - +new Date(); if(d<=0) return null; return { days:Math.floor(d/(1e3*60*60*24)), hours:Math.floor((d/(1e3*60*60))%24), minutes:Math.floor((d/1e3/60)%60), seconds:Math.floor((d/1e3)%60)}; };
   const [timeLeft, setTimeLeft] = useState<TimeLeft | null>(calculateTimeLeft());
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft(calculateTimeLeft());
-    }, 1000);
-
-    // Clear interval on component unmount
-    return () => clearInterval(timer);
-  }, []);
+  useEffect(() => { const timer = setInterval(() => { setTimeLeft(calculateTimeLeft()); }, 1000); return () => clearInterval(timer); }, []);
 
   const formatTime = (value: number) => value.toString().padStart(2, '0');
 
-  if (!timeLeft) {
-    return (
-      <View style={styles.card}>
-        <Text style={styles.expiredText}>Les examens de rattrapage ont commencé !</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Prochains Rattrapages</Text>
-      <Text style={styles.dateText}>Le 5 Avril 2025</Text>
-      <View style={styles.timerContainer}>
-        <View style={styles.timeBlock}>
-          <Text style={styles.timeValue}>{formatTime(timeLeft.days)}</Text>
-          <Text style={styles.timeLabel}>Jours</Text>
-        </View>
-        <View style={styles.timeBlock}>
-          <Text style={styles.timeValue}>{formatTime(timeLeft.hours)}</Text>
-          <Text style={styles.timeLabel}>Heures</Text>
-        </View>
-        <View style={styles.timeBlock}>
-          <Text style={styles.timeValue}>{formatTime(timeLeft.minutes)}</Text>
-          <Text style={styles.timeLabel}>Min</Text>
-        </View>
-        <View style={styles.timeBlock}>
-          <Text style={styles.timeValue}>{formatTime(timeLeft.seconds)}</Text>
-          <Text style={styles.timeLabel}>Sec</Text>
-        </View>
-      </View>
+       <View style={styles.header}>
+          <Ionicons name="alarm-outline" size={20} color={colors.tint} />
+         <Text style={styles.title}>Examens de Rattrapage</Text>
+       </View>
+       {!timeLeft ? (
+           <Text style={styles.expiredText}>Les examens ont commencé ! Bonne chance !</Text>
+       ) : (
+           <>
+               <Text style={styles.dateText}>Début: 5 Avril 2025 - 08:00</Text>
+               <View style={styles.timerContainer}>
+                 <View style={styles.timeBlock}><Text style={styles.timeValue}>{formatTime(timeLeft.days)}</Text><Text style={styles.timeLabel}>Jours</Text></View>
+                 <Text style={styles.separator}>:</Text>
+                 <View style={styles.timeBlock}><Text style={styles.timeValue}>{formatTime(timeLeft.hours)}</Text><Text style={styles.timeLabel}>Heures</Text></View>
+                 <Text style={styles.separator}>:</Text>
+                 <View style={styles.timeBlock}><Text style={styles.timeValue}>{formatTime(timeLeft.minutes)}</Text><Text style={styles.timeLabel}>Min</Text></View>
+                 <Text style={styles.separator}>:</Text>
+                 <View style={styles.timeBlock}><Text style={styles.timeValue}>{formatTime(timeLeft.seconds)}</Text><Text style={styles.timeLabel}>Sec</Text></View>
+               </View>
+           </>
+       )}
     </View>
   );
 };
 
-const getCountdownStyles = (colorScheme: 'light' | 'dark') => StyleSheet.create({
-  card: {
-    backgroundColor: Colors[colorScheme].cardBackground,
-    borderRadius: 12,
-    padding: 18,
-    marginBottom: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: Colors[colorScheme].border,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors[colorScheme].textSecondary,
-    marginBottom: 4,
-  },
-   dateText: {
-     fontSize: 13,
-     color: Colors[colorScheme].textSecondary,
-     marginBottom: 15,
-   },
-  timerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-  },
-  timeBlock: {
-    alignItems: 'center',
-  },
-  timeValue: {
-    fontSize: 28, // Larger numbers
-    fontWeight: 'bold',
-    color: Colors[colorScheme].tint, // Use tint color
-    minWidth: 40, // Ensure consistent width
-    textAlign: 'center',
-  },
-  timeLabel: {
-    fontSize: 11,
-    color: Colors[colorScheme].textSecondary,
-    marginTop: 2,
-    textTransform: 'uppercase',
-  },
-  expiredText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.danger ?? '#dc2626', // Use danger color
-    textAlign: 'center',
-  }
+const getCountdownStyles = (colorScheme: 'light' | 'dark', colors: typeof Colors.light | typeof Colors.dark) => StyleSheet.create({
+  card: { backgroundColor: colors.cardBackground, borderRadius: 12, paddingVertical: 15, paddingHorizontal: 18, marginBottom: 18, alignItems: 'center', borderWidth: 1, borderColor: colors.border, },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, },
+  title: { fontSize: 16, fontWeight: '600', color: colors.textSecondary, marginLeft: 8, },
+  dateText: { fontSize: 13, color: colors.textSecondary, marginBottom: 15, },
+  timerContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, }, // Use gap for spacing
+  timeBlock: { alignItems: 'center', minWidth: 45 }, // Ensure blocks have width
+  timeValue: { fontSize: 30, fontWeight: 'bold', color: colors.tint, letterSpacing: 1, },
+  timeLabel: { fontSize: 10, color: colors.textSecondary, marginTop: 0, textTransform: 'uppercase', letterSpacing: 0.5, },
+  separator: { fontSize: 24, color: colors.tint, fontWeight: 'bold', marginHorizontal: 2, }, // Style separators
+  expiredText: { fontSize: 16, fontWeight: '600', color: colors.success ?? '#16a34a', textAlign: 'center', paddingVertical: 10, }
 });
 
 export default ExamCountdown;

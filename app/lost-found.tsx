@@ -5,10 +5,10 @@ import { Stack, useRouter } from 'expo-router';
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { collection, query, orderBy, getDocs, Timestamp } from 'firebase/firestore';
 // --- Adjust Paths ---
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { auth, db } from '@/firebaseConfig';
-import AuthGuard from '@/app/auth-guard'; // <--- Import Guard ---
+import { Colors } from '../constants/Colors';
+import { useColorScheme } from '../hooks/useColorScheme';
+import { auth, db } from '../firebaseConfig';
+import AuthGuard from '../app/auth-guard'; // <--- Import Guard ---
 // --- ---
 
 // --- Interface (Keep as is) ---

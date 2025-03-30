@@ -1,0 +1,41 @@
+// eas.json
+{
+    "cli": {
+      "version": ">= 7.6.0" // Use a recent version
+    },
+    "build": {
+      "development": { // Profile for creating APKs for testing/development
+        "distribution": "internal",
+        "android": {
+          "buildType": "apk", // <--- CORRECT: Build an APK for development
+          "developmentClient": false // Set to true ONLY if you need a dev client build
+          // If you have specific build needs like debugging enabled:
+          // "gradleCommand": ":app:assembleDebug",
+          // Or for a release-like APK (unsigned usually):
+          // "gradleCommand": ":app:assembleRelease"
+        },
+        "ios": { // Keep iOS minimal if only building Android for now
+          "simulator": true
+          // "developmentClient": false
+        }
+      },
+      "preview": { // Profile for internal sharing or testing releases
+         "distribution": "internal",
+         "android": {
+            // Use app-bundle if testing the format Google Play needs
+            "buildType": "app-bundle", // <--- CORRECTED VALUE
+            // Or change to "apk" if you specifically need an APK for preview
+            // "buildType": "apk"
+         }
+      },
+      "production": { // Profile for Google Play Store release
+        "android": {
+          "buildType": "app-bundle" // <--- CORRECTED VALUE (Required for Play Store)
+        }
+        // "ios": { ... }
+      }
+    },
+    "submit": {
+      "production": {}
+    }
+  }

@@ -2,7 +2,7 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { FontAwesome, Ionicons, MaterialIcons } from '@expo/vector-icons'; // Import icon sets
-import { useColorScheme } from '@/hooks/useColorScheme'; // Assuming you have this hook from the template
+import { useColorScheme } from '../../hooks/useColorScheme'; // Assuming you have this hook from the template
 import { Colors } from '../../constants/Colors'; // Assuming you have this constants file
 
 export default function TabLayout() {

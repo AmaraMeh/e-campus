@@ -1,83 +1,45 @@
 // File: app/auth-guard.tsx
-import React, { useEffect, useState } from 'react';
-import { useRouter, usePathname, Redirect } from 'expo-router';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import React from 'react'; // Removed useEffect, useState
+import { useRouter, Redirect, usePathname } from 'expo-router'; // Keep pathname
 import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 
-// Adjust path to your Firebase config and Colors
-import { auth } from '@/firebaseConfig';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+// Adjust path to your AuthContext and Colors
+import { useAuth } from '../app/contexts/AuthContext'; // Use alias or correct relative path
+import { Colors } from '../constants/Colors'; // Use alias or correct relative path
+import { useColorScheme } from '../hooks/useColorScheme'; // Use alias or correct relative path
 
-/**
- * AuthGuard Higher-Order Component (HOC).
- * Wraps a screen component and redirects to the login screen if the user is not authenticated.
- * Shows a loading indicator while checking the authentication state.
- *
- * @param WrappedComponent The screen component to protect.
- */
 export default function AuthGuard(WrappedComponent: React.ComponentType<any>) {
   return function GuardedComponent(props: any) {
+    const { currentUser, isLoadingAuth } = useAuth(); // Get user and loading state
     const router = useRouter();
-    const pathname = usePathname(); // Get the current path the user is trying to access
-    const [isLoading, setIsLoading] = useState(true);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const pathname = usePathname();
     const colorScheme = useColorScheme() ?? 'light';
-    const colors = colorScheme === 'dark' ? Colors.dark : Colors.light;
+    const colors = Colors[colorScheme]; // Get colors based on scheme
 
-    useEffect(() => {
-        console.log(`[AuthGuard] Checking auth for path: ${pathname}`);
-        // Set up the listener for authentication state changes
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            console.log(`[AuthGuard] onAuthStateChanged triggered. User: ${user ? user.uid : 'null'}`);
-            if (user) {
-                // User is signed in
-                setIsAuthenticated(true);
-            } else {
-                // User is signed out
-                setIsAuthenticated(false);
-                console.log(`[AuthGuard] Not authenticated. Redirecting from ${pathname} to /auth`);
-                // Redirect to the login screen, passing the current path as the redirect target
-                // Using replace ensures the user can't press 'back' to get to the protected screen
-                router.replace({
-                    pathname: '/auth', // Your login/auth screen route
-                    params: { redirect: pathname } // Pass the original path
-                });
-            }
-            setIsLoading(false); // Auth check complete
-        });
-
-        // Cleanup function: unsubscribe from the listener when the component unmounts
-        return () => {
-             console.log("[AuthGuard] Unsubscribing auth listener.");
-             unsubscribe();
-        };
-    }, [router, pathname]); // Dependencies: re-run if router or pathname changes
-
-    // While checking the auth state, show a loading indicator
-    if (isLoading) {
-      return (
-        <View style={[styles.container, { backgroundColor: colors.background }]}>
-          <ActivityIndicator size="large" color={colors.tint} />
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Vérification de l'accès...</Text>
-        </View>
-      );
+    // **NEW:** Wait until the initial Firebase Auth check is complete
+    if (isLoadingAuth) {
+        console.log(`[AuthGuard] Waiting for auth check on path: ${pathname}`);
+        return (
+            <View style={[styles.container, { backgroundColor: colors.background }]}>
+                <ActivityIndicator size="large" color={colors.tint} />
+                {/* Optional: <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Vérification...</Text> */}
+            </View>
+        );
     }
 
-    // If loading is finished and user is authenticated, render the wrapped component
-    if (isAuthenticated) {
-      return <WrappedComponent {...props} />;
+    // After auth check, if no user, redirect to login
+    if (!currentUser) {
+        console.log(`[AuthGuard] Not authenticated after check. Redirecting from ${pathname} to /auth`);
+        // Use Redirect component for declarative redirection within the render phase
+        return <Redirect href={{ pathname: '/auth', params: { redirect: pathname } }} />;
+        // Or using router.replace, but Redirect is often preferred in this scenario
+        // router.replace({ pathname: '/auth', params: { redirect: pathname } });
+        // return null; // Prevent rendering wrapped component while redirecting
     }
 
-    // If loading is finished and user is not authenticated, render null or a placeholder.
-    // The redirect in the useEffect should handle navigation, but this prevents rendering the protected component.
-    return null;
-    // Alternatively, you could show a minimal "Redirecting..." message:
-    // return (
-    //   <View style={[styles.container, { backgroundColor: colors.background }]}>
-    //     <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Redirection vers la connexion...</Text>
-    //   </View>
-    // );
+    // If loading is done and user exists, render the protected component
+    console.log(`[AuthGuard] Authenticated. Rendering component for path: ${pathname}`);
+    return <WrappedComponent {...props} />;
   };
 }
 

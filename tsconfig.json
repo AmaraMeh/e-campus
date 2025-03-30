@@ -2,17 +2,38 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "baseUrl": ".",
+    "baseUrl": ".", // Base URL is the project root (where tsconfig.json is)
     "paths": {
-      "@/*": [
-        "./*"
-      ]
-    }
+      // Make '@/' point to the project root directory itself
+      // This allows imports like '@/components/...', '@/assets/...', '@/app/...'
+      "@/*": ["./*"]
+    },
+    // Keep your other compiler options
+    "target": "esnext", // Or your preferred target
+    "lib": ["DOM", "ESNext"], // Add standard libs if needed
+    "module": "esnext", // Suitable for React Native/Expo with Metro
+    "moduleResolution": "node", // Standard for Node/React Native
+    "jsx": "react-native", // Common setting for React Native
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    // "noEmit": true // Keep this if you only use TSC for type checking, not emitting JS
+    "allowJs": true // Recommended by Expo tsconfig.base
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
+    // Include relevant source directories. Adjust if your structure differs.
+    "**/*.ts", // Include all TS files in the project
+    "**/*.tsx", // Include all TSX files
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+    // You might not need to explicitly include 'scripts' unless you want stricter type checking there
+    // "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "babel.config.cjs", // Exclude config files if they cause issues
+    "metro.config.cjs", // Exclude config files
+    "admin-panel" // Exclude the separate admin panel project
   ]
 }

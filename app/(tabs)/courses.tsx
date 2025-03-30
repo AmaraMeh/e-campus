@@ -1,128 +1,39 @@
 // File: app/(tabs)/courses.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  Platform,
-  LayoutAnimation,
-  UIManager,
-  Alert,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput,
+  Platform, LayoutAnimation, UIManager, Alert, ActivityIndicator, // Added ActivityIndicator
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
-// Correct the paths if your folders are different (e.g., '../constants/Data')
-import { universiteBejaiaData } from '@/constants/Data';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore'; // Import Firestore functions
 
-// --- Data Definitions & Helpers ---
-interface SpecialtyItem {
-  name: string;
-  icon: keyof typeof FontAwesome.glyphMap;
-  link: string; // URL-safe ID used for navigation parameter
-}
-interface CampusData {
-  [campusName: string]: SpecialtyItem[];
-}
-interface YearCoursesData {
-  [yearName: string]: CampusData;
-}
-
-// Helper to create URL-safe link (MUST match lookup logic in [specialtyId].tsx)
-const generateLinkFromName = (name: string): string => {
-    // Added check for null/undefined input
-    if (!name) return 'invalid-name';
-    return name.toLowerCase()
-               .replace(/ /g, '-')
-               .replace(/[èéê]/g, 'e')
-               .replace(/[àâ]/g, 'a')
-               .replace(/[ùûü]/g, 'u')
-               .replace(/[îï]/g, 'i')
-               .replace(/[ô]/g, 'o')
-               .replace(/ç/g, 'c')
-               .replace(/[^a-z0-9-]/g, '');
-};
-
-// Base structure listing ONLY the names as they appear as keys in universiteBejaiaData
-const baseCoursesStructure = {
-  "1ère année": {
-    'Campus El-Kseur': ["Science et Technologie LMD", "Informatique LMD", "Biologie", "Mathématiques", "Science de la matière", "Science et Technologie Ingénieur", "Informatique ING", "Architecture"],
-    'Campus Aboudaou': ["Médecine", "Pharmacie", "Droit", "SEGC", "Langue Française", "Langue Arabe", "Langue Tamazight", "Langue Anglaise", "Science Sociale", "Traduction"],
-    'Campus Targa Ouzemour': []
-  },
-  "2ème année": {
-    'Campus Targa Ouzemour': ["Génie des Procédés", "Automatique", "Exploitation des mines", "Génie Civil", "Télécommunications", "Valorisation des ressources minérales", "Électronique", "Électrotechnique", "Chimie", "Physique", "Mathématiques appliquées", "Informatique", "Sciences biologiques", "Ecologie et environnement", "Sciences alimentaires", "Biotechnologies", "Hydrobiologie marine et continentale"],
-    'Campus Aboudaou': ["Langue et Littérature Française", "Langue et Littérature Anglaise", "Langue et Littérature Arabe", "Économie", "Sciences Commerciales", "Sciences de Gestion"],
-    'Campus El-Kseur': [],
-   },
-   "3ème année": {
-    'Campus Targa Ouzemour': ["Génie des Procédés", "Automatique", "Exploitation des mines", "Génie Civil", "Télécommunications", "Architecture", "Électronique", "Électrotechnique", "Informatique", "Biochimie", "Microbiologie", "Physique Énergétique", "Chimie Analytique"],
-    'Campus Aboudaou': ["Sciences Commerciales", "Sciences de Gestion"],
-    'Campus El-Kseur': [],
-   },
-   "Master 1 & 2": { // Placeholder names MUST be unique if used as keys
-    'Campus Targa Ouzemour': ["Master Targa Placeholder"],
-    'Campus Aboudaou': ["Master Aboudaou Placeholder"],
-    'Campus El-Kseur': ["Master El Kseur Placeholder"],
-   }
-};
-
-// Icon mapping (using FontAwesome 4/5 Free icons)
-const iconMap: Record<string, keyof typeof FontAwesome.glyphMap> = {
-    "default": "book", "technologie": "flask", "st lmd": "flask", "st ing": "cogs", "informatique": "laptop", "info ing": "desktop", "biologie": "leaf", "biologiques": "heartbeat", "biotechnologies": "flask", "biochimie": "flask", "microbiologie": "flask", "hydrobiologie": "tint", "mathématiques": "calculator", "maths-app": "superscript", "matière": "atom", "architecture": "building-o", "médecine": "stethoscope", "pharmacie": "pills", "droit": "gavel", "segc": "balance-scale", "économie": "line-chart", "commerciales": "shopping-cart", "gestion": "briefcase", "langue": "language", "sociale": "users", "traduction": "exchange", "procédés": "industry", "automatique": "cogs", "mines": "bank", "civil": "building", "télécommunications": "wifi", "minérales": "diamond", "électronique": "microchip", "électrotechnique": "bolt", "chimie": "flask", "physique": "atom", "énergétique": "fire", "ecologie": "leaf", "alimentaires": "cutlery", "master": "hourglass-half",
-};
-
-const getIconForSpecialty = (name: string): keyof typeof FontAwesome.glyphMap => {
-    const lowerName = name?.toLowerCase() || ''; // Handle potential undefined name
-    for (const keyword in iconMap) {
-        if (lowerName.includes(keyword)) {
-            return iconMap[keyword];
-        }
-    }
-    return iconMap["default"];
-};
-
-// Generate the final data structure used by the component
-const generateCoursesData = (): YearCoursesData => {
-    const data: YearCoursesData = {};
-    try { // Add error handling around data generation
-        for (const year in baseCoursesStructure) {
-            data[year] = {};
-            const campuses = baseCoursesStructure[year as keyof typeof baseCoursesStructure];
-            for (const campus in campuses) {
-                data[year][campus] = [];
-                const specialtyNames = campuses[campus as keyof typeof campuses];
-                specialtyNames.forEach(name => {
-                    const isPlaceholder = name.includes("Placeholder");
-                    const link = isPlaceholder ? generateLinkFromName(name.replace(" Placeholder", "-soon")) : generateLinkFromName(name);
-                    const displayName = isPlaceholder ? name.replace(" Placeholder", " Bientôt disponible") : name;
-                    const icon = getIconForSpecialty(name);
-
-                    data[year][campus].push({ name: displayName, icon: icon, link: link });
-                });
-            }
-        }
-    } catch (error) {
-        console.error("Error generating courses data:", error);
-        // Return empty or partial data to prevent crashing the app
-        return {};
-    }
-    return data;
-};
-
-// Generate the data ONCE when the module loads
-const coursesData: YearCoursesData = generateCoursesData();
-// --- End Data Definitions & Helpers ---
-
+import { db } from '../../firebaseConfig'; // Adjust path
+import { Colors } from '../../constants/Colors'; // Adjust path
+import { useColorScheme } from '../../hooks/useColorScheme'; // Adjust path
+// Removed import of universiteBejaiaData
+// Import helper if you moved generateLinkFromName, otherwise define it here if needed
+// import { generateLinkFromName } from '@/utils/helpers';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+// --- Interfaces (Consider moving to a central types file) ---
+interface YearItem {
+    id: string; // Firestore document ID
+    name: string;
+    order: number;
+}
+interface SpecialtyItem {
+    id: string; // Firestore document ID
+    name: string;
+    yearId: string;
+    icon?: string; // FontAwesome name
+    campus?: string; // Campus name string
+}
+// ---
 
 // --- Helper Component: CollapsibleSection ---
 interface CollapsibleSectionProps {
@@ -133,21 +44,24 @@ interface CollapsibleSectionProps {
     bgColor?: string;
     borderColor?: string;
     level?: number;
-    startExpanded?: boolean; // Control initial state
+    startExpanded?: boolean;
 }
 
+// Define CollapsibleSection component here (copy from previous response or your file)
 const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     title, children, iconName, titleColor, bgColor, borderColor, level = 0, startExpanded = false
 }) => {
-    const [isExpanded, setIsExpanded] = useState(startExpanded); // Use prop for initial state
+    const [isExpanded, setIsExpanded] = useState(startExpanded);
     const colorScheme = useColorScheme() ?? 'light';
-    const styles = getStyles(colorScheme); // Get styles inside component
+    // Use getStyles defined later in this file
+    const styles = getStyles(colorScheme); // Pass colorScheme
 
     const toggleExpand = () => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setIsExpanded(!isExpanded);
     };
 
+    // Styles logic using styles from getStyles
     const containerStyle = [
         styles.collapsibleContainer,
         { backgroundColor: bgColor ?? styles.collapsibleContainer.backgroundColor,
@@ -177,7 +91,6 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
                     color={titleColor ?? styles.collapsibleTitle.color}
                 />
             </TouchableOpacity>
-            {/* Conditionally render children wrapped in a View for animation */}
             {isExpanded && (
                 <View style={[styles.collapsibleContent, level === 1 && styles.nestedCollapsibleContent]}>
                     {children}
@@ -186,88 +99,147 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
         </View>
     );
 };
+// --- End CollapsibleSection ---
 
 
-// --- Main Courses Screen Component ---
-// Ensure this is the default export
+// --- Main Courses Screen ---
 export default function CoursesScreen() {
   const colorScheme = useColorScheme() ?? 'light';
-  const styles = getStyles(colorScheme);
+  // Use getStyles defined later in this file
+  const styles = getStyles(colorScheme); // Pass colorScheme
+  const colors = Colors[colorScheme]; // Get colors based on scheme
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [years, setYears] = useState<YearItem[]>([]);
+  const [specialties, setSpecialties] = useState<SpecialtyItem[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // Filtered data based on search term
-  const filteredData = useMemo(() => {
+  // --- Fetch Data ---
+  const fetchData = useCallback(async () => {
+    if (!db) {
+        setFetchError("Database service not available.");
+        setIsLoading(false);
+        return;
+    }
+    setIsLoading(true);
+    setFetchError(null);
+    try {
+        console.log("CoursesScreen: Fetching data from Firestore...");
+        const yearsQuery = query(collection(db, "years"), orderBy("order", "asc"));
+        // Fetch all specialties, filtering/grouping will happen client-side
+        const specialtiesQuery = query(collection(db, "specialties"));
+
+        const [yearsSnapshot, specialtiesSnapshot] = await Promise.all([
+            getDocs(yearsQuery),
+            getDocs(specialtiesQuery)
+        ]);
+
+        const fetchedYears: YearItem[] = [];
+        yearsSnapshot.forEach(doc => {
+            fetchedYears.push({ id: doc.id, ...doc.data() } as YearItem);
+        });
+        console.log(`CoursesScreen: Fetched ${fetchedYears.length} years.`);
+
+        const fetchedSpecialties: SpecialtyItem[] = [];
+        specialtiesSnapshot.forEach(doc => {
+            fetchedSpecialties.push({ id: doc.id, ...doc.data() } as SpecialtyItem);
+        });
+         console.log(`CoursesScreen: Fetched ${fetchedSpecialties.length} specialties.`);
+
+        setYears(fetchedYears);
+        setSpecialties(fetchedSpecialties);
+
+    } catch (error) {
+        console.error("CoursesScreen: Error fetching data:", error);
+        setFetchError("Failed to load academic data.");
+        setYears([]);
+        setSpecialties([]);
+    } finally {
+        setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]); // Fetch on mount
+
+  // --- Filter & Group Data ---
+  const groupedAndFilteredData = useMemo(() => {
     const lowerCaseSearch = searchTerm.toLowerCase().trim();
-    // Use the globally generated coursesData
-    if (!lowerCaseSearch) {
-      return coursesData;
-    }
 
-    const result: YearCoursesData = {};
+    // Filter specialties first
+    const filteredSpecialties = lowerCaseSearch
+        ? specialties.filter(spec => spec.name.toLowerCase().includes(lowerCaseSearch))
+        : specialties;
 
-    for (const year in coursesData) {
-      if (Object.prototype.hasOwnProperty.call(coursesData, year)) {
-        const campuses = coursesData[year];
-        const filteredCampuses: CampusData = {};
-        let yearHasMatch = false;
+    // Group filtered specialties by Year ID
+    const specialtiesByYear: { [yearId: string]: SpecialtyItem[] } = {};
+    filteredSpecialties.forEach(spec => {
+        if (!specialtiesByYear[spec.yearId]) {
+            specialtiesByYear[spec.yearId] = [];
+        }
+        specialtiesByYear[spec.yearId].push(spec);
+    });
 
-        for (const campus in campuses) {
-          if (Object.prototype.hasOwnProperty.call(campuses, campus)) {
-            const specialties = campuses[campus];
-            // Ensure specialties is an array before filtering
-            if (Array.isArray(specialties)) {
-                const filteredSpecialties = specialties.filter(spec =>
-                    spec.name?.toLowerCase().includes(lowerCaseSearch) // Add safe access check
-                );
+    // Group specialties within each year by Campus
+    const finalGroupedData: {
+        year: YearItem;
+        campuses: { campusName: string; specialties: SpecialtyItem[] }[];
+    }[] = [];
 
-                if (filteredSpecialties.length > 0) {
-                    filteredCampuses[campus] = filteredSpecialties;
-                    yearHasMatch = true;
+    years.forEach(year => {
+        const yearSpecialties = specialtiesByYear[year.id];
+        if (yearSpecialties && yearSpecialties.length > 0) {
+            const campusesMap: { [campusName: string]: SpecialtyItem[] } = {};
+            yearSpecialties.forEach(spec => {
+                const campusName = spec.campus || 'Campus Non Spécifié'; // Default if campus field missing
+                if (!campusesMap[campusName]) {
+                    campusesMap[campusName] = [];
                 }
+                campusesMap[campusName].push(spec);
+            });
+
+            const campusesArray = Object.entries(campusesMap).map(([campusName, specialties]) => ({
+                campusName,
+                specialties
+            })).sort((a, b) => a.campusName.localeCompare(b.campusName)); // Sort campuses alphabetically
+
+            if (campusesArray.length > 0) {
+                finalGroupedData.push({ year, campuses: campusesArray });
             }
-          }
         }
+    });
 
-        if (yearHasMatch) {
-          result[year] = filteredCampuses;
-        }
-      }
-    }
-    return result;
-  }, [searchTerm]); // Only depends on searchTerm
+    return finalGroupedData;
 
-  // Handle navigation
-  const handleSpecialtyPress = (specialtyLink: string, specialtyName: string) => {
-      if (!specialtyLink || specialtyLink.includes('-soon')) {
-          Alert.alert("Bientôt disponible", `Les cours pour ${specialtyName} seront ajoutés prochainement.`);
-          return;
-      }
-      // Navigate using the generated link which acts as the ID
-      console.log(`Navigating to /specialty/${specialtyLink}`); // Debug log
-      router.push(`/specialty/${specialtyLink}`);
+  }, [searchTerm, years, specialties]);
+
+
+  // --- Handlers ---
+  const handleSpecialtyPress = (specialtyId: string, specialtyName: string) => {
+    // Specialty ID from Firestore is now the link ID
+    console.log(`Navigating to /specialty/${specialtyId}`);
+    router.push(`/specialty/${specialtyId}`);
   };
 
-  // --- Get Campus Styling ---
-   const getCampusStyling = (campusName: string): { icon: keyof typeof MaterialCommunityIcons.glyphMap, color: string, bgColor: string, borderColor: string } => {
+    // --- Styling Helpers ---
+    // Copy getCampusStyling and getYearStyling functions here from previous response
+    const getCampusStyling = (campusName: string): { icon: keyof typeof MaterialCommunityIcons.glyphMap, color: string, bgColor: string, borderColor: string } => {
+        // ... implementation ...
        const tint = Colors[colorScheme].tint ?? '#0a7ea4';
        const cardBg = Colors[colorScheme].cardBackground ?? '#fff';
        const border = Colors[colorScheme].border ?? '#e0e0e0';
 
        switch (campusName) {
-           case 'Campus El-Kseur':
-               return { icon: 'school', color: Colors[colorScheme].tint ?? '#1d4ed8', bgColor: colorScheme === 'dark' ? '#1e293b' : '#eff6ff', borderColor: colorScheme === 'dark' ? '#3b82f6' : '#bfdbfe' };
-           case 'Campus Aboudaou':
-               return { icon: 'hospital-building', color: '#047857', bgColor: colorScheme === 'dark' ? '#064e3b' : '#f0fdf4', borderColor: colorScheme === 'dark' ? '#10b981' : '#a7f3d0' };
-           case 'Campus Targa Ouzemour':
-               return { icon: 'factory', color: '#7c3aed', bgColor: colorScheme === 'dark' ? '#3b0764' : '#f5f3ff', borderColor: colorScheme === 'dark' ? '#a78bfa' : '#ddd6fe' };
-           default:
-               return { icon: 'domain', color: Colors[colorScheme].textSecondary ?? '#666', bgColor: cardBg, borderColor: border };
+           case 'Campus El-Kseur': return { icon: 'school', color: colors.tint ?? '#1d4ed8', bgColor: colorScheme === 'dark' ? '#1e293b' : '#eff6ff', borderColor: colorScheme === 'dark' ? '#3b82f6' : '#bfdbfe' };
+           case 'Campus Aboudaou': return { icon: 'hospital-building', color: '#047857', bgColor: colorScheme === 'dark' ? '#064e3b' : '#f0fdf4', borderColor: colorScheme === 'dark' ? '#10b981' : '#a7f3d0' };
+           case 'Campus Targa Ouzemour': return { icon: 'factory', color: '#7c3aed', bgColor: colorScheme === 'dark' ? '#3b0764' : '#f5f3ff', borderColor: colorScheme === 'dark' ? '#a78bfa' : '#ddd6fe' };
+           default: return { icon: 'domain', color: colors.textSecondary ?? '#666', bgColor: cardBg, borderColor: border };
        }
    };
-
-   // --- Get Year Styling ---
     const getYearStyling = (yearName: string): { icon: keyof typeof MaterialCommunityIcons.glyphMap, color: string, bgColor: string, borderColor: string } => {
+        // ... implementation ...
          const tint = Colors[colorScheme].tint ?? '#0a7ea4';
          const cardBg = Colors[colorScheme].cardBackground ?? '#fff';
          const border = Colors[colorScheme].border ?? '#e0e0e0';
@@ -275,9 +247,18 @@ export default function CoursesScreen() {
          if (yearName.includes("1ère")) return { icon: 'numeric-1-box-outline', color: tint, bgColor: cardBg, borderColor: border };
          if (yearName.includes("2ème")) return { icon: 'numeric-2-box-outline', color: tint, bgColor: cardBg, borderColor: border };
          if (yearName.includes("3ème")) return { icon: 'numeric-3-box-outline', color: tint, bgColor: cardBg, borderColor: border };
-         if (yearName.includes("Master")) return { icon: 'school-outline', color: Colors[colorScheme].textSecondary ?? '#666', bgColor: cardBg, borderColor: border };
-         return { icon: 'calendar-blank-outline', color: Colors[colorScheme].textSecondary ?? '#666', bgColor: cardBg, borderColor: border };
+         if (yearName.includes("Master")) return { icon: 'school-outline', color: colors.textSecondary ?? '#666', bgColor: cardBg, borderColor: border };
+         return { icon: 'calendar-blank-outline', color: colors.textSecondary ?? '#666', bgColor: cardBg, borderColor: border };
     };
+    // ---
+
+  // --- Render Logic ---
+  if (isLoading) {
+    return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={colors.tint} /></View>;
+  }
+  if (fetchError) {
+     return <View style={styles.loadingContainer}><Text style={styles.errorText}>{fetchError}</Text></View>;
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -294,7 +275,7 @@ export default function CoursesScreen() {
           value={searchTerm}
           onChangeText={setSearchTerm}
           returnKeyType="search"
-          clearButtonMode='while-editing'
+          clearButtonMode='while-editing' // iOS only
         />
          {searchTerm ? (
               <TouchableOpacity onPress={() => setSearchTerm('')} style={styles.clearIconContainer}>
@@ -304,45 +285,42 @@ export default function CoursesScreen() {
       </View>
 
       {/* Main Content Area */}
-      {Object.keys(filteredData).length > 0 ? (
-         Object.entries(filteredData).map(([year, campuses]) => {
-             const yearStyling = getYearStyling(year);
-             const hasCampusesWithSpecialties = Object.values(campuses).some(specs => Array.isArray(specs) && specs.length > 0);
-
-             if (!hasCampusesWithSpecialties) return null;
-
+      {groupedAndFilteredData.length > 0 ? (
+         groupedAndFilteredData.map(({ year, campuses }) => {
+             const yearStyling = getYearStyling(year.name);
              return (
                  <CollapsibleSection
-                     key={year}
-                     title={year}
+                     key={year.id} // Use Firestore ID
+                     title={year.name}
                      iconName={yearStyling.icon}
                      titleColor={yearStyling.color}
+                     bgColor={yearStyling.bgColor} // Use year specific style
+                     borderColor={yearStyling.borderColor}
                      level={0}
                      startExpanded={true} // Keep years expanded
                  >
-                    {Object.entries(campuses).map(([campus, specialties]) => {
-                        if (!Array.isArray(specialties) || specialties.length === 0) return null;
-
-                        const campusStyling = getCampusStyling(campus);
+                    {campuses.map(({ campusName, specialties: campusSpecialties }) => {
+                        const campusStyling = getCampusStyling(campusName);
                         return (
                             <CollapsibleSection
-                                key={`${year}-${campus}`}
-                                title={campus}
+                                key={`${year.id}-${campusName}`} // Unique key for campus within year
+                                title={campusName}
                                 iconName={campusStyling.icon}
                                 titleColor={campusStyling.color}
                                 bgColor={campusStyling.bgColor}
                                 borderColor={campusStyling.borderColor}
                                 level={1}
-                                startExpanded={false} // Keep campuses collapsed by default
+                                startExpanded={!!searchTerm} // Expand campus if searching
                              >
-                                {specialties.map((spec) => (
+                                {campusSpecialties.map((spec) => (
                                 <TouchableOpacity
-                                    key={spec.link}
+                                    key={spec.id} // Use Firestore ID
                                     style={styles.specialtyItem}
-                                    onPress={() => handleSpecialtyPress(spec.link, spec.name)}
-                                    activeOpacity={0.7} // Feedback on press
+                                    onPress={() => handleSpecialtyPress(spec.id, spec.name)}
+                                    activeOpacity={0.7}
                                 >
-                                    <FontAwesome name={spec.icon || 'book'} size={18} color={campusStyling.color} style={styles.specialtyIcon} />
+                                    {/* Use icon from Firestore data or fallback */}
+                                    <FontAwesome name={(spec.icon || 'book') as any} size={18} color={campusStyling.color} style={styles.specialtyIcon} />
                                     <Text style={styles.specialtyText}>{spec.name}</Text>
                                     <Ionicons name="chevron-forward" size={20} color={styles.specialtyArrow.color} />
                                 </TouchableOpacity>
@@ -357,156 +335,49 @@ export default function CoursesScreen() {
            <Text style={styles.infoText}>
                {searchTerm
                 ? `Aucune spécialité trouvée pour "${searchTerm}"`
-                : "Chargement des données ou aucune donnée disponible."}
+                : "Aucune donnée de cours disponible."}
             </Text>
        )}
 
-    {/* Spacer View for bottom padding */}
-     <View style={{ height: 50 }} />
+      <View style={{ height: 50 }} />
     </ScrollView>
   );
 }
 
 // --- Styles ---
-const getStyles = (colorScheme: 'light' | 'dark') => StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors[colorScheme].background,
-  },
-  contentContainer: {
-    padding: 15,
-    paddingBottom: 30, // Ensure space at the bottom
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: Colors[colorScheme].text,
-    textAlign: 'center',
-    marginBottom: 5,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: Colors[colorScheme].textSecondary ?? '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors[colorScheme].cardBackground ?? '#fff',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: Colors[colorScheme].border ?? '#e0e0e0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  searchIcon: {
-    marginRight: 8,
-    color: Colors[colorScheme].textSecondary ?? '#888',
-  },
-  clearIconContainer: {
-       padding: 5, // Make clear icon easier to tap
-   },
-  searchInput: {
-    flex: 1,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    fontSize: 15,
-    color: Colors[colorScheme].text,
-    placeholderTextColor: Colors[colorScheme].placeholderText ?? '#999',
-  },
-  collapsibleContainer: {
-    borderRadius: 10,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: Colors[colorScheme].border ?? '#e0e0e0',
-    backgroundColor: Colors[colorScheme].background, // Match page background for top level (year)
-    overflow: 'hidden',
-  },
-  nestedCollapsibleContainer: { // Campus level
-      marginLeft: 0, // Remove left margin for full width
-      marginBottom: 10,
-      backgroundColor: Colors[colorScheme].cardBackground ?? '#fff', // Use card background for campus
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
-      borderRadius: 8, // Slightly less rounded
-      borderWidth: 1,
-      // borderColor set via prop
-  },
-  collapsibleHeader: { // Year and Campus Header
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-  },
-   nestedCollapsibleHeader: { // Campus Header specific padding
-       paddingVertical: 10,
-       paddingHorizontal: 12,
-   },
-  collapsibleTitleContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      flexShrink: 1, // Prevent title from pushing icon out
-  },
-  collapsibleTitle: { // Year Title
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors[colorScheme].text,
-    flexShrink: 1,
-  },
-  nestedCollapsibleTitle: { // Campus Title
-      fontSize: 16,
-      fontWeight: '600',
-  },
-  collapsibleContent: { // Container for children (Year level)
-    paddingHorizontal: 0,
-    paddingBottom: 0,
-    paddingTop: 0, // No padding needed if children have margin
-  },
-   nestedCollapsibleContent: { // Container for specialties (Campus level)
-       paddingHorizontal: 8, // Add some padding for specialty items
-       paddingBottom: 8,
-       paddingTop: 4,
-       borderTopWidth: 1,
-       borderTopColor: 'rgba(128, 128, 128, 0.15)', // Lighter separator
-   },
-  specialtyItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 11,
-    paddingHorizontal: 8,
-    backgroundColor: 'transparent', // Transparent inside campus card
-    borderRadius: 6,
-    marginBottom: 4, // Less space between items
-  },
-  specialtyIcon: {
-      marginRight: 12,
-      width: 20,
-      textAlign: 'center',
-      opacity: 0.9,
-  },
-  specialtyText: {
-    flex: 1,
-    fontSize: 14,
-    color: Colors[colorScheme].text,
-  },
-  specialtyArrow: {
-    color: Colors[colorScheme].textSecondary ?? '#bbb',
-  },
-  infoText: {
-    textAlign: 'center',
-    color: Colors[colorScheme].textSecondary ?? '#555',
-    marginTop: 25,
-    fontSize: 15,
-    paddingHorizontal: 15,
-  },
-});
+// Define getStyles function here (copy from previous response or your file)
+const getStyles = (colorScheme: 'light' | 'dark') => {
+    const colors = Colors[colorScheme];
+    return StyleSheet.create({
+        loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
+        errorText: { color: colors.danger ?? '#dc2626', fontSize: 16, textAlign: 'center' },
+        container: { flex: 1, backgroundColor: colors.background },
+        contentContainer: { padding: 15, paddingBottom: 30 },
+        title: { fontSize: 24, fontWeight: 'bold', color: colors.text, textAlign: 'center', marginBottom: 5 },
+        subtitle: { fontSize: 15, color: colors.textSecondary ?? '#666', textAlign: 'center', marginBottom: 20 },
+        searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardBackground ?? '#fff', borderRadius: 10, paddingHorizontal: 12, marginBottom: 20, borderWidth: 1, borderColor: colors.border ?? '#e0e0e0', /* ...shadows... */ },
+        searchIcon: { marginRight: 8, color: colors.textSecondary ?? '#888' },
+        clearIconContainer: { padding: 5 },
+        searchInput: { flex: 1, paddingVertical: Platform.OS === 'ios' ? 10 : 8, fontSize: 15, color: colors.text, placeholderTextColor: colors.placeholderText ?? '#999' },
+        collapsibleContainer: { borderRadius: 10, marginBottom: 15, borderWidth: 1, /* borderColor set by prop */ backgroundColor: colors.background, /* bgColor set by prop */ overflow: 'hidden' },
+        nestedCollapsibleContainer: { marginLeft: 0, marginBottom: 10, /* bgColor set by prop */ /* ...shadows... */ borderRadius: 8, borderWidth: 1 /* borderColor set by prop */ },
+        collapsibleHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15 },
+        nestedCollapsibleHeader: { paddingVertical: 10, paddingHorizontal: 12 },
+        collapsibleTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+        collapsibleTitle: { fontSize: 18, fontWeight: 'bold', /* color set by prop */ flexShrink: 1 },
+        nestedCollapsibleTitle: { fontSize: 16, fontWeight: '600' },
+        collapsibleContent: { paddingHorizontal: 0, paddingBottom: 0, paddingTop: 0 },
+        nestedCollapsibleContent: { paddingHorizontal: 8, paddingBottom: 8, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.border + '50' },
+        specialtyItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 8, backgroundColor: 'transparent', borderRadius: 6, marginBottom: 4 },
+        specialtyIcon: { marginRight: 12, width: 20, textAlign: 'center', opacity: 0.9 },
+        specialtyText: { flex: 1, fontSize: 14, color: colors.text },
+        specialtyArrow: { color: colors.textSecondary ?? '#bbb' },
+        infoText: { textAlign: 'center', color: colors.textSecondary ?? '#555', marginTop: 25, fontSize: 15, paddingHorizontal: 15 },
+        // Added missing placeholderTextColor and placeholderText styles potentially used by TextInput
+        searchInputPlaceholder: { color: colors.placeholderText ?? '#999' },
+        placeholderText: { color: colors.placeholderText ?? '#999' }, // Generic placeholder color if needed elsewhere
+        // Added potential missing styles from CollapsibleSection usage
+        collapsibleTitleColor: { color: colors.text }, // Default title color
+        chevronColor: { color: colors.textSecondary ?? '#bbb'}, // Default chevron color
+    });
+};
