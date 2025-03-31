@@ -44,6 +44,7 @@
       "router": {
         "origin": false
       },
+      "aimlApiKey": "50ecdd11a7b745a99e748de75994cf2c",
       "eas": {
         "projectId": "330451e7-6745-4ebf-9d55-7bd33fbac940"
       }

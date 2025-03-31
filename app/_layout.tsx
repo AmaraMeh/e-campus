@@ -7,10 +7,12 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated'; // Keep this import
 
+// ** FIX: Import SafeAreaProvider **
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+
 // ** ENSURE these imports point correctly to your context files **
-// Assuming contexts folder is a direct child of app/
-import { AuthProvider } from './contexts/AuthContext';
-import { ResourceProvider } from './contexts/ResourceContext';
+import { AuthProvider } from './contexts/AuthContext'; // Assuming contexts folder is a direct child of app/
+import { ResourceProvider } from './contexts/ResourceContext'; // Assuming contexts folder is a direct child of app/
 // Assuming hooks folder is a direct child of app/
 import { useColorScheme } from '../hooks/useColorScheme';
 
@@ -31,36 +33,41 @@ export default function RootLayout() {
   const navigationTheme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
 
   return (
-    // ** Providers MUST wrap ThemeProvider and Stack **
-    <AuthProvider>
-      <ResourceProvider>
-        <ThemeProvider value={navigationTheme}>
-          {/* Root Stack Navigator */}
-          <Stack
-             screenOptions={{
-                // Apply default header styles if needed
-                // headerStyle: { backgroundColor: Colors[colorScheme]?.cardBackground },
-                // headerTintColor: Colors[colorScheme]?.tint,
-                // headerTitleStyle: { color: Colors[colorScheme]?.text }
-             }}
-          >
-             {/* Tabs are nested inside the Stack */}
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    // ** FIX: Wrap the entire app with SafeAreaProvider **
+    // It should ideally be the outermost provider if others don't need safe area access before it.
+    <SafeAreaProvider>
+      <AuthProvider>
+        <ResourceProvider>
+          <ThemeProvider value={navigationTheme}>
+            {/* Root Stack Navigator */}
+            <Stack
+               screenOptions={{
+                  // Apply default header styles if needed
+                  // headerStyle: { backgroundColor: Colors[colorScheme]?.cardBackground },
+                  // headerTintColor: Colors[colorScheme]?.tint,
+                  // headerTitleStyle: { color: Colors[colorScheme]?.text }
+               }}
+            >
+               {/* Tabs are nested inside the Stack */}
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
-             {/* Define ALL other screens managed by this Stack */}
-            <Stack.Screen name="module/[moduleId]" options={{ headerBackTitleVisible: false }} />
-            <Stack.Screen name="specialty/[specialtyId]" options={{ headerBackTitleVisible: false }} />
-            <Stack.Screen name="edit-profile" options={{ headerBackTitleVisible: false, title: "Modifier Profil" }} />
-            <Stack.Screen name="report-found" options={{ headerBackTitleVisible: false, title: "Signaler Objet" }} />
-            <Stack.Screen name="lost-found" options={{ headerBackTitleVisible: false, title: "Objets Trouvés" }} />
-            <Stack.Screen name="web-viewer" options={{ presentation: 'modal', headerBackTitleVisible: false, title: "Navigateur" }} />
-            <Stack.Screen name="pdf-viewer" options={{ presentation: 'modal', headerBackTitleVisible: false, title: "Lecteur PDF" }} />
-            <Stack.Screen name="+not-found" />
-             {/* Auth screen typically replaces this stack or is presented modally, no need to list here if handled by redirection */}
-          </Stack>
-          <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-        </ThemeProvider>
-      </ResourceProvider>
-    </AuthProvider>
+               {/* Define ALL other screens managed by this Stack */}
+              <Stack.Screen name="module/[moduleId]" options={{ headerBackTitleVisible: false }} />
+              <Stack.Screen name="specialty/[specialtyId]" options={{ headerBackTitleVisible: false }} />
+              <Stack.Screen name="edit-profile" options={{ headerBackTitleVisible: false, title: "Modifier Profil" }} />
+              <Stack.Screen name="report-found" options={{ headerBackTitleVisible: false, title: "Signaler Objet" }} />
+              <Stack.Screen name="lost-found" options={{ headerBackTitleVisible: false, title: "Objets Trouvés" }} />
+              <Stack.Screen name="web-viewer" options={{ presentation: 'modal', headerBackTitleVisible: false, title: "Navigateur" }} />
+              <Stack.Screen name="pdf-viewer" options={{ presentation: 'modal', headerBackTitleVisible: false, title: "Lecteur PDF" }} />
+              {/* Add auth screen if it's part of this stack */}
+              {/* <Stack.Screen name="auth" options={{ headerShown: false }} /> */}
+              <Stack.Screen name="+not-found" />
+               {/* Auth screen might replace this stack or be presented modally - adjust as needed */}
+            </Stack>
+            <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+          </ThemeProvider>
+        </ResourceProvider>
+      </AuthProvider>
+    </SafeAreaProvider> // ** FIX: Closing tag for SafeAreaProvider **
   );
 }

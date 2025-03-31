@@ -1,17 +1,15 @@
-// File: app/(tabs)/_layout.tsx
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { FontAwesome, Ionicons, MaterialIcons } from '@expo/vector-icons'; // Import icon sets
-import { useColorScheme } from '../../hooks/useColorScheme'; // Assuming you have this hook from the template
-import { Colors } from '../../constants/Colors'; // Assuming you have this constants file
+import { FontAwesome, Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { useColorScheme } from '../../hooks/useColorScheme';
+import { Colors } from '../../constants/Colors';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme() ?? 'light'; // Handle potential null value
+  const colorScheme = useColorScheme() ?? 'light';
 
-  // Define colors based on the scheme (adjust as needed to match your website)
   const activeColor = Colors[colorScheme].tint;
   const inactiveColor = Colors[colorScheme].tabIconDefault;
-  const tabBarBgColor = Colors[colorScheme].background; // Or a specific tab bar color
+  const tabBarBgColor = Colors[colorScheme].background;
 
   return (
     <Tabs
@@ -20,18 +18,17 @@ export default function TabLayout() {
         tabBarInactiveTintColor: inactiveColor,
         tabBarStyle: {
           backgroundColor: tabBarBgColor,
-          // Add other tab bar styles here if needed (e.g., borderTopColor)
-          // Mimic website's bottom nav style
         },
-        headerShown: false, // We might add custom headers per screen later
-      }}>
+        headerShown: false,
+      }}
+    >
       <Tabs.Screen
-        name="index" // Matches app/(tabs)/index.tsx
+        name="index"
         options={{
-          title: 'Accueil', // French for Home
+          title: 'Accueil',
           tabBarIcon: ({ color, focused }) => (
             <FontAwesome
-              name={focused ? 'home' : 'home'} // Use same or different icon based on focus
+              name={focused ? 'home' : 'home'}
               size={28}
               color={color}
             />
@@ -39,9 +36,9 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="calculator" // Matches app/(tabs)/calculator.tsx
+        name="calculator"
         options={{
-          title: 'Moyenne', // French for Average (Calculator)
+          title: 'Moyenne',
           tabBarIcon: ({ color, focused }) => (
             <FontAwesome
               name={focused ? 'calculator' : 'calculator'}
@@ -52,9 +49,9 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="courses" // Matches app/(tabs)/courses.tsx
+        name="courses"
         options={{
-          title: 'Cours', // French for Courses
+          title: 'Cours',
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'book' : 'book-outline'}
@@ -65,23 +62,35 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="favorites" // Matches app/(tabs)/favorites.tsx
+        name="favorites"
         options={{
-          title: 'Favoris', // French for Favorites
+          title: 'Favoris',
           tabBarIcon: ({ color, focused }) => (
             <MaterialIcons
               name={focused ? 'favorite' : 'favorite-border'}
               size={28}
               color={color}
-              // Or use a download icon: <FontAwesome name="download" size={24} color={color} />
             />
           ),
         }}
       />
       <Tabs.Screen
-        name="profile" // Matches app/(tabs)/profile.tsx
+        name="ai" // New AI tab
         options={{
-          title: 'Profil', // French for Profile
+          title: 'Campus AI',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
+              size={26}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profil',
           tabBarIcon: ({ color, focused }) => (
             <FontAwesome
               name={focused ? 'user' : 'user-o'}
