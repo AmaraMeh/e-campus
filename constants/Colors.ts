@@ -1,73 +1,55 @@
 // constants/Colors.ts
 
-const tintColorLight = '#0a7ea4'; // Example Primary Blue
-const tintColorDark = '#38bdf8'; // Lighter Blue for Dark Mode (Sky Blue 500)
+// Common Tint Colors (can be adjusted)
+const tintColorLight = '#2962FF'; // A vibrant blue (Indigo 600)
+const tintColorDark = '#448AFF'; // A brighter blue (Light Blue A200)
 
-// Define specific colors for clarity
-const darkBackground = '#111827'; // Very Dark Blue/Gray (Gray 900)
-const darkCardBackground = '#1f2937'; // Darker Gray/Blue (Gray 800)
-const darkInputBackground = '#374151'; // Medium Dark Gray/Blue (Gray 700)
-const darkInputBorder = '#4b5563'; // Gray 600
-const darkText = '#f9fafb'; // Off-white (Gray 50)
-const darkTextSecondary = '#9ca3af'; // Lighter Gray (Gray 400)
-const darkPlaceholderText = '#6b7280'; // Gray 500
-const darkBorder = '#374151'; // Gray 700 (Same as input bg for subtle borders)
-const darkDanger = '#f87171'; // Lighter Red (Red 400)
+// Define Light Mode Colors
+const light = {
+    text: '#212121',           // Very Dark Gray (almost black)
+    background: '#FAFAFA',     // Light Gray
+    tint: tintColorLight,      // Primary Blue
+    icon: '#757575',           // Medium Gray
+    tabIconDefault: '#9E9E9E', // Gray
+    tabIconSelected: tintColorLight,
+    cardBackground: '#FFFFFF', // White
+    inputBackground: '#F5F5F5',  // Lighter Gray
+    inputBorder: '#E0E0E0',     // Light Gray
+    placeholderText: '#9E9E9E', // Gray
+    textSecondary: '#757575',   // Medium Gray
+    border: '#E0E0E0',        // Light Gray
+    danger: '#D32F2F',        // Dark Red
+    success: '#388E3C',       // Dark Green
+    shadow: '#000000',       // Black for shadow (adjust opacity)
+    gradientColors: ['#4FC3F7', '#29B6F6'], // Light Blue Gradient
+};
 
-const lightBackground = '#f8fafc'; // Very Light Gray (Slate 50)
-const lightCardBackground = '#ffffff'; // White
-const lightInputBackground = '#ffffff'; // White
-const lightInputBorder = '#e5e7eb'; // Gray 200
-const lightText = '#1f2937'; // Dark Gray (Gray 800)
-const lightTextSecondary = '#6b7280'; // Medium Gray (Gray 500)
-const lightPlaceholderText = '#9ca3af'; // Gray 400
-const lightBorder = '#e5e7eb'; // Gray 200
-const lightDanger = '#dc2626'; // Standard Red (Red 600)
-
+// Define Dark Mode Colors
+const dark = {
+    text: '#E0E0E0',           // Light Gray
+    background: '#121212',     // Near Black (Dark Theme Background)
+    tint: tintColorDark,      // Lighter Blue
+    icon: '#BDBDBD',           // Light Gray
+    tabIconDefault: '#616161', // Dark Gray
+    tabIconSelected: tintColorDark,
+    cardBackground: '#1E1E1E', // Darker Gray
+    inputBackground: '#2C2C2C',  // Slightly Lighter Dark Gray
+    inputBorder: '#424242',     // Medium Dark Gray
+    placeholderText: '#616161', // Dark Gray
+    textSecondary: '#BDBDBD',   // Light Gray
+    border: '#424242',        // Medium Dark Gray
+    danger: '#F44336',        // Red
+    success: '#4CAF50',       // Green
+    shadow: '#000000',       // Black for shadow (adjust opacity)
+    gradientColors: ['#1976D2', '#1565C0'], // Darker Blue Gradient
+};
 
 export const Colors = {
-  light: {
-    text: lightText,
-    background: lightBackground,
-    tint: tintColorLight,
-    icon: '#687076', // Default icon color
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-    // Specifics
-    cardBackground: lightCardBackground,
-    inputBackground: lightInputBackground,
-    inputBorder: lightInputBorder,
-    placeholderText: lightPlaceholderText,
-    textSecondary: lightTextSecondary,
-    border: lightBorder,
-    danger: lightDanger,
-    success: '#16a34a', // Green 600
-    // Add other necessary light theme colors
-  },
-  dark: {
-    text: darkText,
-    background: darkBackground,
-    tint: tintColorDark,
-    icon: '#9BA1A6', // Default icon color
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
-    // Specifics
-    cardBackground: darkCardBackground,
-    inputBackground: darkInputBackground,
-    inputBorder: darkInputBorder,
-    placeholderText: darkPlaceholderText,
-    textSecondary: darkTextSecondary,
-    border: darkBorder,
-    danger: darkDanger,
-    success: '#22c55e', // Green 500
-    // Add other necessary dark theme colors
-  },
+  light,
+  dark,
   // Common colors (optional)
   white: '#fff',
   black: '#000',
   grey: '#ccc',
   // ...
 };
-
-// Optional: Export common colors directly if needed elsewhere
-// export const commonColors = { ... };

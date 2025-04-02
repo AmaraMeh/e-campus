@@ -86,5 +86,116 @@ function LostFoundScreenContent() {
 // --- Styles (getListStyles - Keep as is) ---
 // ...
 
-// --- Wrap with Guard ---
+// --- Styles ---
+const getListStyles = (colorScheme: 'light' | 'dark', colors: typeof Colors.light | typeof Colors.dark) => {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: colors.background,
+    },
+    listContentContainer: {
+      padding: 15,
+      paddingBottom: 80, // Ensure space for potential floating action buttons or tab bar
+    },
+    itemCard: {
+      backgroundColor: colors.cardBackground,
+      borderRadius: 12,
+      marginBottom: 15,
+      overflow: 'hidden', // Ensures image corners are rounded
+      flexDirection: 'row', // Arrange image and content side-by-side
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.08,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    itemImage: {
+      width: 100, // Fixed width for the image
+      height: 130, // Fixed height for consistency
+    },
+    itemContent: {
+      flex: 1, // Takes remaining space
+      padding: 12,
+    },
+    itemName: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 5,
+    },
+    itemDescription: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginBottom: 8,
+      lineHeight: 18,
+    },
+    itemDetailRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 5,
+    },
+    itemDetailText: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      marginLeft: 6,
+    },
+    statusBadge: {
+      position: 'absolute', // Position badge within the card
+      top: 10,
+      right: 10,
+      backgroundColor: colors.success + '30', // Semi-transparent success
+      paddingVertical: 3,
+      paddingHorizontal: 8,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.success + '80',
+    },
+    statusClaimed: {
+      backgroundColor: colors.warning + '30', // Semi-transparent warning
+      borderColor: colors.warning + '80',
+    },
+    statusText: {
+      fontSize: 11,
+      fontWeight: '500',
+      color: colors.success, // Success color for text by default
+    },
+    // You might want a specific style for claimed text color
+    // statusClaimedText: {
+    //   color: colors.warning,
+    // },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 30,
+      marginTop: 50, // Add some top margin
+    },
+    emptyText: {
+      fontSize: 16,
+      color: colors.textSecondary,
+      textAlign: 'center',
+      marginTop: 15,
+      marginBottom: 20,
+    },
+    reportButtonSmall: {
+      backgroundColor: colors.tint,
+      paddingVertical: 10,
+      paddingHorizontal: 20,
+      borderRadius: 8,
+    },
+    reportButtonTextSmall: {
+      color: '#fff', // Assuming white text on tint background
+      fontSize: 14,
+      fontWeight: '500',
+    },
+  });
+};
+
+
 export default AuthGuard(LostFoundScreenContent);
