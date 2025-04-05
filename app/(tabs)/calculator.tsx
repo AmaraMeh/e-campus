@@ -1,4 +1,3 @@
-// File: app/(tabs)/calculator.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -15,23 +14,16 @@ import {
 import RNPickerSelect from 'react-native-picker-select';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { collection, getDocs, query, orderBy, where } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, where, doc, setDoc, getDoc } from 'firebase/firestore';
+import Animated, { FadeIn, FadeInUp, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 
-import { db } from '../../firebaseConfig'; // Import the Firestore instance from firebaseConfig.ts
-import { Colors } from '../../constants/Colors'; // Adjust path to your color constants
-import { useColorScheme } from '../../hooks/useColorScheme'; // Adjust path if needed
+import { db, auth } from '../../firebaseConfig';
+import { Colors } from '../../constants/Colors';
+import { useColorScheme } from '../../hooks/useColorScheme';
 
 // --- Interfaces & Types ---
-interface YearItem {
-  id: string;
-  name: string;
-  order: number;
-}
-interface SpecialtyItem {
-  id: string;
-  name: string;
-  yearId: string;
-}
+interface YearItem { id: string; name: string; order: number; }
+interface SpecialtyItem { id: string; name: string; yearId: string; }
 interface Module {
   id: string;
   name: string;
@@ -43,14 +35,8 @@ interface Module {
   credits: number;
   noteEliminatoire?: number;
 }
-interface GradeInput {
-  td?: string;
-  tp?: string;
-  examen?: string;
-}
-interface GradeState {
-  [moduleKey: string]: GradeInput;
-}
+interface GradeInput { td?: string; tp?: string; examen?: string; }
+interface GradeState { [moduleKey: string]: GradeInput; }
 interface ModuleAverageState {
   [moduleKey: string]: { average: number | null; isEliminated: boolean; isValid: boolean };
 }
@@ -86,17 +72,21 @@ export default function CalculatorScreen() {
   const [grades, setGrades] = useState<GradeState>({});
   const [moduleAverages, setModuleAverages] = useState<ModuleAverageState>({});
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
-  const [isCalculating, setIsCalculating] = useState(false);
   const [isSavingGrades, setIsSavingGrades] = useState(false);
   const [isLoadingGrades, setIsLoadingGrades] = useState(false);
   const [targetSemesterAverage, setTargetSemesterAverage] = useState<string>('10');
+
+  // Animation Values
+  const scale = useSharedValue(1);
+  const animatedButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: withSpring(scale.value) }],
+  }));
 
   // --- Fetch Initial Data from Firestore ---
   const fetchInitialData = useCallback(async () => {
     setIsLoadingData(true);
     setFetchError(null);
     try {
-      // Fetch Years
       const yearsQuery = query(collection(db, 'years'), orderBy('order', 'asc'));
       const yearsSnapshot = await getDocs(yearsQuery);
       const yearsData = yearsSnapshot.docs.map(doc => ({
@@ -106,7 +96,6 @@ export default function CalculatorScreen() {
       })) as YearItem[];
       setYears(yearsData);
 
-      // Fetch Specialties
       const specialtiesQuery = query(collection(db, 'specialties'));
       const specialtiesSnapshot = await getDocs(specialtiesQuery);
       const specialtiesData = specialtiesSnapshot.docs.map(doc => ({
@@ -119,26 +108,51 @@ export default function CalculatorScreen() {
       setIsLoadingData(false);
     } catch (error) {
       console.error('Error fetching initial data:', error);
-      setFetchError('Failed to load years and specialties. Please try again.');
+      setFetchError('Failed to load data. Please try again.');
       setIsLoadingData(false);
     }
   }, []);
 
+  // --- Load Theme from Firestore ---
+  const loadThemeFromFirestore = useCallback(async () => {
+    if (!auth.currentUser) return;
+    try {
+      const userDocRef = doc(db, 'users', auth.currentUser.uid);
+      const userDoc = await getDoc(userDocRef);
+      if (userDoc.exists() && userDoc.data().theme) {
+        // Assuming useColorScheme can accept a setter
+        // This might need adjustment based on your hook implementation
+      }
+    } catch (error) {
+      console.error('Error loading theme:', error);
+    }
+  }, []);
+
+  // --- Save Theme to Firestore ---
+  const saveThemeToFirestore = useCallback(async () => {
+    if (!auth.currentUser) return;
+    try {
+      const userDocRef = doc(db, 'users', auth.currentUser.uid);
+      await setDoc(userDocRef, { theme: colorScheme }, { merge: true });
+    } catch (error) {
+      console.error('Error saving theme:', error);
+    }
+  }, [colorScheme]);
+
   useEffect(() => {
     fetchInitialData();
-  }, [fetchInitialData]);
+    loadThemeFromFirestore();
+    saveThemeToFirestore();
+  }, [fetchInitialData, loadThemeFromFirestore, saveThemeToFirestore]);
 
-  // --- Fetch Modules for Selected Specialty ---
+  // --- Fetch Modules ---
   const fetchModules = useCallback(async () => {
     if (!selectedSpecialtyId) {
       setAllModules([]);
       return;
     }
     try {
-      const modulesQuery = query(
-        collection(db, 'modules'),
-        where('specialtyId', '==', selectedSpecialtyId)
-      );
+      const modulesQuery = query(collection(db, 'modules'), where('specialtyId', '==', selectedSpecialtyId));
       const modulesSnapshot = await getDocs(modulesQuery);
       const modulesData = modulesSnapshot.docs.map(doc => ({
         id: doc.id,
@@ -154,7 +168,7 @@ export default function CalculatorScreen() {
       setAllModules(modulesData);
     } catch (error) {
       console.error('Error fetching modules:', error);
-      setFetchError('Failed to load modules. Please try again.');
+      setFetchError('Failed to load modules.');
     }
   }, [selectedSpecialtyId]);
 
@@ -162,127 +176,110 @@ export default function CalculatorScreen() {
     fetchModules();
   }, [fetchModules]);
 
-  // --- Populate Dropdown Options ---
+  // --- Populate Dropdowns ---
   useEffect(() => {
-    const options = years.map(year => ({ label: year.name, value: year.id }));
-    setYearOptions(options);
-    if (options.length > 0 && !selectedYearId) setSelectedYearId(options[0].value);
+    setYearOptions(years.map(year => ({ label: year.name, value: year.id })));
+    setSelectedYearId(years[0]?.id ?? '');
   }, [years]);
 
   useEffect(() => {
-    const filteredSpecialties = specialties.filter(s => s.yearId === selectedYearId);
-    const specOptions = filteredSpecialties.map(spec => ({ label: spec.name, value: spec.id }));
-    setSpecialiteOptions(specOptions);
-    if (specOptions.length > 0 && (!selectedSpecialtyId || !specOptions.some(opt => opt.value === selectedSpecialtyId))) {
-      setSelectedSpecialtyId(specOptions[0]?.value ?? '');
-    } else if (specOptions.length === 0) {
-      setSelectedSpecialtyId('');
-    }
+    const filtered = specialties.filter(s => s.yearId === selectedYearId);
+    setSpecialiteOptions(filtered.map(spec => ({ label: spec.name, value: spec.id })));
+    setSelectedSpecialtyId(filtered[0]?.id ?? '');
   }, [selectedYearId, specialties]);
 
   useEffect(() => {
-    const semesterKeys = Array.from(
-      new Set(allModules.map(m => m.semesterKey))
-    ).sort();
-    const options = semesterKeys.map(key => ({ label: key || 'Unknown Semester', value: key || '' }));
-    setSemestreOptions(options);
-    if (options.length > 0 && (!selectedSemesterKey || !options.some(opt => opt.value === selectedSemesterKey))) {
-      setSelectedSemesterKey(options[0]?.value ?? '');
-    } else if (options.length === 0) {
-      setSelectedSemesterKey('');
-    }
+    const semesterKeys = Array.from(new Set(allModules.map(m => m.semesterKey))).sort();
+    setSemestreOptions(semesterKeys.map(key => ({ label: key || 'Unknown', value: key || '' })));
+    setSelectedSemesterKey(semesterKeys[0] ?? '');
   }, [allModules]);
 
-  // --- Load Current Modules ---
   useEffect(() => {
     if (!selectedSpecialtyId || !selectedSemesterKey) {
       setCurrentModules([]);
       return;
     }
-    const modules = allModules.filter(
-      m => m.specialtyId === selectedSpecialtyId && m.semesterKey === selectedSemesterKey
+    setCurrentModules(
+      allModules.filter(m => m.specialtyId === selectedSpecialtyId && m.semesterKey === selectedSemesterKey)
     );
-    setCurrentModules(modules);
   }, [selectedSpecialtyId, selectedSemesterKey, allModules]);
 
-  // --- Grade Parsing and Validation ---
-  const parseAndValidateGrade = useCallback((value: string | undefined) => {
+  // --- Grade Parsing ---
+  const parseGrade = useCallback((value: string | undefined) => {
     if (!value || value.trim() === '') return { num: null, valid: false, display: '' };
-    let cleaned = value.replace(/,/g, '.').replace(/[^0-9.]/g, '');
-    const dotCount = (cleaned.match(/\./g) || []).length;
-    if (dotCount > 1) cleaned = cleaned.substring(0, cleaned.lastIndexOf('.'));
+    const cleaned = value.replace(/,/g, '.').replace(/[^0-9.]/g, '');
     const num = parseFloat(cleaned);
-    if (isNaN(num)) return { num: null, valid: false, display: cleaned };
-    if (num < 0) return { num: 0, valid: true, display: '0' };
-    return { num: Math.min(num, 20), valid: true, display: cleaned };
+    return isNaN(num) ? { num: null, valid: false, display: cleaned } : { num: Math.min(Math.max(num, 0), 20), valid: true, display: cleaned };
   }, []);
 
-  // --- Calculate Single Module Average ---
-  const calculateSingleModuleAverage = useCallback(
-    (module: Module, moduleGrades: GradeInput) => {
-      if (!module) return { average: null, isEliminated: false, isValid: false };
-      const evaluations = module.evaluations || [];
-      let sum = 0,
-        weightSum = 0,
-        canCalculate = true,
-        isEliminated = false;
-      const elimNote = module.noteEliminatoire;
-      const safeGrades = moduleGrades || {};
+  // --- Calculate Module Average ---
+  const calculateModuleAverage = useCallback((module: Module, moduleGrades: GradeInput) => {
+    const evals = module.evaluations || [];
+    let sum = 0, weightSum = 0, canCalculate = true, isEliminated = false;
+    const elimNote = module.noteEliminatoire;
 
-      const addGrade = (gradeStr: string | undefined, weight: number) => {
-        const gradeInfo = parseAndValidateGrade(gradeStr);
-        if (gradeInfo.num === null) canCalculate = false;
-        else {
-          sum += gradeInfo.num * weight;
-          weightSum += weight;
-        }
-      };
-
-      const hasTD = evaluations.includes('TD');
-      const hasTP = evaluations.includes('TP');
-      const hasExam = evaluations.includes('Examen');
-
-      if (hasTD && hasTP && hasExam) {
-        addGrade(safeGrades.td, 0.2);
-        addGrade(safeGrades.tp, 0.2);
-        addGrade(safeGrades.examen, 0.6);
-      } else if (hasTP && hasExam) {
-        addGrade(safeGrades.tp, 0.4);
-        addGrade(safeGrades.examen, 0.6);
-      } else if (hasTD && hasExam) {
-        addGrade(safeGrades.td, 0.4);
-        addGrade(safeGrades.examen, 0.6);
-      } else if (hasExam) {
-        addGrade(safeGrades.examen, 1.0);
-      } else if (hasTP) {
-        addGrade(safeGrades.tp, 1.0);
-      } else if (hasTD) {
-        addGrade(safeGrades.td, 1.0);
-      } else {
-        canCalculate = false;
+    const addGrade = (gradeStr: string | undefined, weight: number) => {
+      const gradeInfo = parseGrade(gradeStr);
+      if (gradeInfo.num === null) canCalculate = false;
+      else {
+        sum += gradeInfo.num * weight;
+        weightSum += weight;
       }
+    };
 
-      const calculatedAverage = canCalculate && weightSum > 0 ? sum / weightSum : null;
-      if (typeof elimNote === 'number' && calculatedAverage !== null && calculatedAverage < elimNote) {
-        isEliminated = true;
-      }
-      return { average: calculatedAverage, isEliminated, isValid: canCalculate && weightSum > 0 };
-    },
-    [parseAndValidateGrade]
-  );
+    const hasTD = evals.includes('TD'), hasTP = evals.includes('TP'), hasExam = evals.includes('Examen');
+    if (hasTD && hasTP && hasExam) {
+      addGrade(moduleGrades.td, 0.2);
+      addGrade(moduleGrades.tp, 0.2);
+      addGrade(moduleGrades.examen, 0.6);
+    } else if (hasTP && hasExam) {
+      addGrade(moduleGrades.tp, 0.4);
+      addGrade(moduleGrades.examen, 0.6);
+    } else if (hasTD && hasExam) {
+      addGrade(moduleGrades.td, 0.4);
+      addGrade(moduleGrades.examen, 0.6);
+    } else if (hasExam) addGrade(moduleGrades.examen, 1.0);
+    else if (hasTP) addGrade(moduleGrades.tp, 1.0);
+    else if (hasTD) addGrade(moduleGrades.td, 1.0);
+    else canCalculate = false;
 
-  // --- Update Module Averages ---
+    const average = canCalculate && weightSum > 0 ? sum / weightSum : null;
+    if (elimNote && average !== null && average < elimNote) isEliminated = true;
+    return { average, isEliminated, isValid: canCalculate && weightSum > 0 };
+  }, [parseGrade]);
+
+  // --- Live Calculation ---
   useEffect(() => {
     const newAverages: ModuleAverageState = {};
-    currentModules.forEach(module => {
-      if (!module.id) return;
-      const moduleKey = module.id;
-      newAverages[moduleKey] = calculateSingleModuleAverage(module, grades[moduleKey] || {});
-    });
-    setModuleAverages(newAverages);
-  }, [grades, currentModules, calculateSingleModuleAverage]);
+    let totalWeightedSum = 0, totalCoeff = 0, totalCreditsAttempted = 0, totalCreditsValidated = 0, hasEliminations = false;
 
-  // --- Handle Grade Input Changes ---
+    currentModules.forEach(module => {
+      const moduleKey = module.id;
+      const result = calculateModuleAverage(module, grades[moduleKey] || {});
+      newAverages[moduleKey] = result;
+
+      if (result.isValid && result.average !== null) {
+        const coeff = module.coefficient || 1;
+        totalWeightedSum += result.average * coeff;
+        totalCoeff += coeff;
+        totalCreditsAttempted += module.credits || 0;
+        if (result.average >= 10 && !result.isEliminated) totalCreditsValidated += module.credits || 0;
+        if (result.isEliminated) hasEliminations = true;
+      }
+    });
+
+    setModuleAverages(newAverages);
+    const average = totalCoeff > 0 ? totalWeightedSum / totalCoeff : null;
+    setCalculationResult({
+      average,
+      totalCreditsAttempted,
+      totalCreditsValidated,
+      isValidated: average !== null && average >= 10 && !hasEliminations,
+      hasEliminations,
+    });
+  }, [grades, currentModules, calculateModuleAverage]);
+
+  // --- Handle Grade Input ---
   const handleGradeChange = (moduleKey: string, type: 'td' | 'tp' | 'examen', value: string) => {
     setGrades(prev => ({
       ...prev,
@@ -291,24 +288,17 @@ export default function CalculatorScreen() {
   };
 
   // --- Storage Functions ---
-  const getStorageKey = () => {
-    if (!selectedYearId || !selectedSpecialtyId || !selectedSemesterKey) return null;
-    return `${GRADE_STORAGE_PREFIX}${selectedYearId}_${selectedSpecialtyId}_${selectedSemesterKey}`;
-  };
-
+  const getStorageKey = () => `${GRADE_STORAGE_PREFIX}${selectedYearId}_${selectedSpecialtyId}_${selectedSemesterKey}`;
   const saveGrades = async () => {
     const key = getStorageKey();
-    if (!key) {
-      Alert.alert('Error', 'Please select all required options.');
-      return;
-    }
+    if (!key) return Alert.alert('Error', 'Select all options.');
     setIsSavingGrades(true);
     try {
       await AsyncStorage.setItem(key, JSON.stringify(grades));
-      Alert.alert('Success', 'Grades saved successfully.');
+      Alert.alert('Success', 'Grades saved.');
     } catch (error) {
       console.error('Error saving grades:', error);
-      Alert.alert('Error', 'Failed to save grades. Please try again.');
+      Alert.alert('Error', 'Failed to save grades.');
     } finally {
       setIsSavingGrades(false);
     }
@@ -316,949 +306,388 @@ export default function CalculatorScreen() {
 
   const loadGrades = async () => {
     const key = getStorageKey();
-    if (!key) {
-      Alert.alert('Error', 'Please select all required options.');
-      return;
-    }
+    if (!key) return Alert.alert('Error', 'Select all options.');
     setIsLoadingGrades(true);
     try {
-      const savedGrades = await AsyncStorage.getItem(key);
-      if (savedGrades) {
-        setGrades(JSON.parse(savedGrades));
-        Alert.alert('Success', 'Grades loaded successfully.');
+      const saved = await AsyncStorage.getItem(key);
+      if (saved) {
+        setGrades(JSON.parse(saved));
+        Alert.alert('Success', 'Grades loaded.');
       } else {
-        Alert.alert('Info', 'No saved grades found for this selection.');
+        Alert.alert('Info', 'No saved grades found.');
       }
     } catch (error) {
       console.error('Error loading grades:', error);
-      Alert.alert('Error', 'Failed to load grades. Please try again.');
+      Alert.alert('Error', 'Failed to load grades.');
     } finally {
       setIsLoadingGrades(false);
     }
   };
 
   const clearGrades = () => {
-    Alert.alert(
-      'Clear All Grades',
-      'Are you sure you want to clear all entered grades?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear',
-          style: 'destructive',
-          onPress: () => setGrades({}),
-        },
-      ]
-    );
+    Alert.alert('Clear Grades', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear', style: 'destructive', onPress: () => setGrades({}) },
+    ]);
   };
 
-  // --- "What If" Calculation ---
+  // --- What If Calculation ---
   const calculateWhatIf = () => {
     const targetAvg = parseFloat(targetSemesterAverage.replace(',', '.'));
-    if (isNaN(targetAvg) || targetAvg < 0 || targetAvg > 20) {
-      Alert.alert('Error', 'Please enter a valid target average between 0 and 20.');
-      return;
-    }
+    if (isNaN(targetAvg) || targetAvg < 0 || targetAvg > 20) return Alert.alert('Error', 'Invalid target average (0-20).');
 
-    if (currentModules.length === 0) {
-      Alert.alert('Error', 'No modules selected to calculate.');
-      return;
-    }
-
-    let currentWeightedSum = 0,
-      totalCoefficientSum = 0,
-      totalExamWeightCoefficientSum = 0,
-      canCalculate = true;
-
+    let weightedSum = 0, totalCoeff = 0, examWeightCoeff = 0, canCalculate = true;
     currentModules.forEach(module => {
-      if (!module?.id || (module.coefficient ?? 0) <= 0) return;
-      const moduleKey = module.id;
-      const moduleGrades = grades[moduleKey] || {};
-      const evaluations = module.evaluations || [];
-      const tdInfo = parseAndValidateGrade(moduleGrades.td);
-      const tpInfo = parseAndValidateGrade(moduleGrades.tp);
-
-      if (evaluations.includes('TD') && (!tdInfo || tdInfo.num === null)) canCalculate = false;
-      if (evaluations.includes('TP') && (!tpInfo || tpInfo.num === null)) canCalculate = false;
+      const moduleGrades = grades[module.id] || {};
+      const evals = module.evaluations || [];
+      const tdInfo = parseGrade(moduleGrades.td);
+      const tpInfo = parseGrade(moduleGrades.tp);
+      if (evals.includes('TD') && tdInfo.num === null) canCalculate = false;
+      if (evals.includes('TP') && tpInfo.num === null) canCalculate = false;
       if (!canCalculate) return;
 
-      const tdNum = tdInfo?.num ?? 0;
-      const tpNum = tpInfo?.num ?? 0;
-      const coeff = module.coefficient ?? 1;
-      totalCoefficientSum += coeff;
-
-      let moduleSumWithoutExam = 0,
-        examWeight = 0;
-      const hasTD = evaluations.includes('TD');
-      const hasTP = evaluations.includes('TP');
-      const hasExam = evaluations.includes('Examen');
-
-      if (hasTD && hasTP && hasExam) {
-        moduleSumWithoutExam = tdNum * 0.2 + tpNum * 0.2;
+      const coeff = module.coefficient || 1;
+      totalCoeff += coeff;
+      let sumWithoutExam = 0, examWeight = 0;
+      if (evals.includes('TD') && evals.includes('TP') && evals.includes('Examen')) {
+        sumWithoutExam = (tdInfo.num || 0) * 0.2 + (tpInfo.num || 0) * 0.2;
         examWeight = 0.6;
-      } else if (hasTP && hasExam) {
-        moduleSumWithoutExam = tpNum * 0.4;
+      } else if (evals.includes('TP') && evals.includes('Examen')) {
+        sumWithoutExam = (tpInfo.num || 0) * 0.4;
         examWeight = 0.6;
-      } else if (hasTD && hasExam) {
-        moduleSumWithoutExam = tdNum * 0.4;
+      } else if (evals.includes('TD') && evals.includes('Examen')) {
+        sumWithoutExam = (tdInfo.num || 0) * 0.4;
         examWeight = 0.6;
-      } else if (hasExam) {
-        examWeight = 1.0;
-      } else if (hasTP) {
-        moduleSumWithoutExam = tpNum;
-      } else if (hasTD) {
-        moduleSumWithoutExam = tdNum;
-      }
+      } else if (evals.includes('Examen')) examWeight = 1.0;
 
-      currentWeightedSum += moduleSumWithoutExam * coeff;
-      if (hasExam && examWeight > 0) totalExamWeightCoefficientSum += examWeight * coeff;
+      weightedSum += sumWithoutExam * coeff;
+      if (examWeight > 0) examWeightCoeff += examWeight * coeff;
     });
 
-    if (!canCalculate) {
-      Alert.alert('Missing Grades', 'Please enter all required TD/TP grades for "What If" calculation.');
-      return;
-    }
-    if (totalExamWeightCoefficientSum <= 0) {
-      Alert.alert('Info', 'No modules with weighted exams to calculate.');
-      return;
-    }
-
-    const targetWeightedSum = targetAvg * totalCoefficientSum;
-    const neededExamWeightedSum = targetWeightedSum - currentWeightedSum;
-    const averageExamNeeded = neededExamWeightedSum / totalExamWeightCoefficientSum;
-
-    const resultMessage =
-      averageExamNeeded <= 0
-        ? 'You already reach or exceed the target average.'
-        : averageExamNeeded > 20
-        ? 'It is impossible to reach this average with the remaining exams.'
-        : `You need an average of ${averageExamNeeded.toFixed(2)} / 20 in the remaining exams.`;
-    Alert.alert('What If Calculation', resultMessage);
-  };
-
-  // --- Minimum Exam Grade Simulation for Each Module ---
-  const calculateMinExamGrade = (module: Module) => {
-    if (!module.id) return;
-    const moduleKey = module.id;
-    const moduleGrades = grades[moduleKey] || {};
-    const evaluations = module.evaluations || [];
-    if (!evaluations.includes('Examen')) {
-      Alert.alert('Info', 'This module does not have an exam.');
-      return;
-    }
-
-    // Ensure all non-exam grades are entered
-    const nonExamEvals = evaluations.filter(ev => ev !== 'Examen');
-    const allNonExamEntered = nonExamEvals.every(ev => {
-      const gradeTypeKey = ev.toLowerCase() as 'td' | 'tp';
-      const gradeStr = moduleGrades[gradeTypeKey];
-      const gradeInfo = parseAndValidateGrade(gradeStr);
-      return gradeInfo.num !== null;
-    });
-
-    if (!allNonExamEntered) {
-      Alert.alert('Missing Grades', `Please enter all ${nonExamEvals.join(', ')} grades for this module.`);
-      return;
-    }
-
-    // Assign weights based on evaluation types
-    let tdWeight = 0, tpWeight = 0, examWeight = 0;
-    if (evaluations.includes('TD') && evaluations.includes('TP') && evaluations.includes('Examen')) {
-      tdWeight = 0.2;
-      tpWeight = 0.2;
-      examWeight = 0.6;
-    } else if (evaluations.includes('TP') && evaluations.includes('Examen')) {
-      tpWeight = 0.4;
-      examWeight = 0.6;
-    } else if (evaluations.includes('TD') && evaluations.includes('Examen')) {
-      tdWeight = 0.4;
-      examWeight = 0.6;
-    } else if (evaluations.includes('Examen')) {
-      examWeight = 1.0;
-    }
-
-    // Get current grades
-    const tdNum = evaluations.includes('TD') ? parseAndValidateGrade(moduleGrades.td).num! : 0;
-    const tpNum = evaluations.includes('TP') ? parseAndValidateGrade(moduleGrades.tp).num! : 0;
-
-    // Calculate sum without exam
-    const currentSum = tdWeight * tdNum + tpWeight * tpNum;
-
-    // Determine passing target (10 or eliminatoire note)
-    const target = Math.max(10, module.noteEliminatoire || 0);
-
-    // Calculate required exam grade
-    const requiredExamContribution = target - currentSum;
-    if (examWeight <= 0) {
-      Alert.alert('Error', 'Invalid exam weight configuration.');
-      return;
-    }
-    const requiredExamGrade = requiredExamContribution / examWeight;
-
-    // Provide feedback
-    let message;
-    if (requiredExamGrade <= 0) {
-      message = 'You have already passed this module without the exam.';
-    } else if (requiredExamGrade > 20) {
-      message = 'It is impossible to pass this module with the current grades.';
-    } else {
-      message = `You need at least ${requiredExamGrade.toFixed(2)} / 20 in the exam to pass this module.`;
-    }
-    Alert.alert('Minimum Exam Grade', message);
-  };
-
-  // --- General Average Calculation (Requires All Grades) ---
-  const handleCalculatePress = () => {
-    setIsCalculating(true);
-    if (currentModules.length === 0) {
-      Alert.alert('Error', 'No modules available to calculate.');
-      setIsCalculating(false);
-      return;
-    }
-
-    // Check if all required grades are entered for all modules
-    const allModulesValid = currentModules.every(module => {
-      const moduleKey = module.id;
-      const { isValid } = moduleAverages[moduleKey] || { isValid: false };
-      return isValid;
-    });
-
-    if (!allModulesValid) {
-      Alert.alert('Missing Grades', 'Please enter all required grades for all modules to calculate the general average.');
-      setIsCalculating(false);
-      return;
-    }
-
-    // Proceed with general average calculation
-    let totalWeightedSum = 0,
-      totalCoefficientSum = 0,
-      totalCreditsAttempted = 0,
-      totalCreditsValidated = 0,
-      hasEliminations = false;
-
-    currentModules.forEach(module => {
-      if (!module.id || (module.coefficient ?? 0) <= 0) return;
-      const moduleKey = module.id;
-      const { average, isEliminated, isValid } = moduleAverages[moduleKey];
-      const credits = module.credits ?? 0;
-      const coeff = module.coefficient ?? 1;
-
-      if (isValid && average !== null) {
-        totalWeightedSum += average * coeff;
-        totalCoefficientSum += coeff;
-        totalCreditsAttempted += credits;
-        if (average >= 10 && !isEliminated) totalCreditsValidated += credits;
-        if (isEliminated) hasEliminations = true;
-      }
-    });
-
-    const average = totalCoefficientSum > 0 ? totalWeightedSum / totalCoefficientSum : null;
-    const isValidated = average !== null && average >= 10 && !hasEliminations;
-
-    setCalculationResult({
-      average,
-      totalCreditsAttempted,
-      totalCreditsValidated,
-      isValidated,
-      hasEliminations,
-    });
-    setIsCalculating(false);
+    if (!canCalculate) return Alert.alert('Missing Grades', 'Enter all TD/TP grades.');
+    if (examWeightCoeff <= 0) return Alert.alert('Info', 'No exams to calculate.');
+    const neededExamAvg = (targetAvg * totalCoeff - weightedSum) / examWeightCoeff;
+    const message = neededExamAvg <= 0 ? 'Target already reached.' : neededExamAvg > 20 ? 'Impossible to reach.' : `Need ${neededExamAvg.toFixed(2)}/20 in exams.`;
+    Alert.alert('What If', message);
   };
 
   // --- Render Module Card ---
   const renderModuleCard = (module: Module) => {
-    if (!module?.id) return null;
     const moduleKey = module.id;
-    const { average, isEliminated, isValid } = moduleAverages[moduleKey] || {
-      average: null,
-      isEliminated: false,
-      isValid: false,
-    };
-    let avgColor = styles.averageTextPending,
-      avgText = '--.--';
-    if (isValid && average !== null) {
-      avgColor = average >= 10 && !isEliminated ? styles.averageTextSuccess : styles.averageTextFail;
-      avgText = average.toFixed(2);
-    } else if (
-      !isValid &&
-      Object.values(grades[moduleKey] || {}).some(g => g && g.trim() !== '')
-    ) {
-      avgColor = styles.averageTextPending;
-      avgText = '...';
-    }
-    const hasExam = (module.evaluations || []).includes('Examen');
+    const { average, isEliminated, isValid } = moduleAverages[moduleKey] || {};
+    const avgText = isValid && average !== null ? average.toFixed(2) : '--.--';
+    const avgColor = isValid && average !== null ? (average >= 10 && !isEliminated ? colors.success : colors.danger) : colors.textSecondary;
 
     return (
-      <View key={moduleKey} style={styles.moduleCard}>
-        <View style={styles.moduleHeader}>
-          <Text style={styles.moduleTitle}>{module.name}</Text>
-          <View style={styles.moduleInfoBadges}>
-            <Text style={styles.moduleInfoBadge}>Coef: {module.coefficient}</Text>
-            <Text style={styles.moduleInfoBadge}>Credits: {module.credits}</Text>
-            {typeof module.noteEliminatoire === 'number' && (
-              <Text style={[styles.moduleInfoBadge, styles.eliminationNoteBadge]}>
-                Elim: {module.noteEliminatoire}
-              </Text>
-            )}
-          </View>
+      <Animated.View entering={FadeInUp.delay(100)} style={styles.moduleCard}>
+        <Text style={styles.moduleTitle}>{module.name}</Text>
+        <View style={styles.moduleInfo}>
+          <Text style={styles.badge}>C: {module.coefficient}</Text>
+          <Text style={styles.badge}>Cr: {module.credits}</Text>
+          {module.noteEliminatoire && <Text style={[styles.badge, styles.elimBadge]}>Elim: {module.noteEliminatoire}</Text>}
         </View>
-        <View style={styles.gradesInputSection}>
-          <View style={styles.inputsGrid}>
-            {(module.evaluations || []).map(type => {
-              const gradeTypeKey = type.toLowerCase() as 'td' | 'tp' | 'examen';
-              const gradeValue = grades[moduleKey]?.[gradeTypeKey] ?? '';
-              const gradeInfo = parseAndValidateGrade(gradeValue);
-              const isInvalidRange =
-                gradeInfo.num !== null &&
-                (gradeInfo.num < 0 || parseFloat(gradeInfo.display) > 20);
-              const displayValue = gradeInfo.display;
-
-              return (
-                <View key={type} style={styles.inputWrapper}>
-                  <Text style={styles.inputLabel}>{type}</Text>
-                  <TextInput
-                    style={[styles.gradeInput, isInvalidRange && styles.inputError]}
-                    placeholder="--"
-                    placeholderTextColor={colors.placeholderText}
-                    keyboardType="decimal-pad"
-                    value={displayValue}
-                    onChangeText={value => handleGradeChange(moduleKey, gradeTypeKey, value)}
-                    maxLength={5}
-                    textAlign="center"
-                  />
-                </View>
-              );
-            })}
-          </View>
+        <View style={styles.gradesContainer}>
+          {(module.evaluations || []).map(type => {
+            const key = type.toLowerCase() as 'td' | 'tp' | 'examen';
+            const value = grades[moduleKey]?.[key] ?? '';
+            return (
+              <View key={type} style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>{type}</Text>
+                <TextInput
+                  style={styles.gradeInput}
+                  placeholder="--"
+                  keyboardType="decimal-pad"
+                  value={value}
+                  onChangeText={val => handleGradeChange(moduleKey, key, val)}
+                  maxLength={5}
+                  textAlign="center"
+                />
+              </View>
+            );
+          })}
         </View>
         <View style={styles.moduleFooter}>
-          <View style={styles.moduleAverageDisplay}>
-            {isValid && average !== null && (
-              <Ionicons
-                name={average >= 10 && !isEliminated ? 'checkmark-circle' : 'close-circle'}
-                size={18}
-                color={average >= 10 && !isEliminated ? colors.success : colors.danger}
-                style={{ marginRight: 4 }}
-              />
-            )}
-            <Text style={[styles.moduleAverageValue, avgColor]}>
-              {avgText}
-              {isEliminated ? ' (Elim)' : ''}
-            </Text>
-          </View>
-          {hasExam && (
-            <TouchableOpacity
-              style={styles.minExamButton}
-              onPress={() => calculateMinExamGrade(module)}
-            >
-              <Text style={styles.minExamButtonText}>Min Exam</Text>
+          <Text style={[styles.avgText, { color: avgColor }]}>{avgText}{isEliminated ? ' (Elim)' : ''}</Text>
+          {module.evaluations.includes('Examen') && (
+            <TouchableOpacity style={styles.minExamBtn} onPress={() => calculateMinExamGrade(module)}>
+              <Text style={styles.minExamText}>Min Exam</Text>
             </TouchableOpacity>
           )}
         </View>
-      </View>
+      </Animated.View>
     );
   };
 
-  // --- Render Module Inputs Section ---
-  const renderModuleInputs = () => {
-    if (currentModules.length === 0 && !isLoadingData && selectedSemesterKey) {
-      return <Text style={styles.infoText}>No modules found for this semester.</Text>;
-    }
-    return currentModules.map(renderModuleCard);
+  // --- Minimum Exam Grade ---
+  const calculateMinExamGrade = (module: Module) => {
+    const moduleGrades = grades[module.id] || {};
+    const evals = module.evaluations || [];
+    if (!evals.includes('Examen')) return Alert.alert('Info', 'No exam for this module.');
+
+    const nonExamEvals = evals.filter(ev => ev !== 'Examen');
+    const allEntered = nonExamEvals.every(ev => parseGrade(moduleGrades[ev.toLowerCase() as 'td' | 'tp'])?.num !== null);
+    if (!allEntered) return Alert.alert('Missing Grades', `Enter all ${nonExamEvals.join(', ')} grades.`);
+
+    let tdWeight = 0, tpWeight = 0, examWeight = 0;
+    if (evals.includes('TD') && evals.includes('TP') && evals.includes('Examen')) {
+      tdWeight = 0.2; tpWeight = 0.2; examWeight = 0.6;
+    } else if (evals.includes('TP') && evals.includes('Examen')) {
+      tpWeight = 0.4; examWeight = 0.6;
+    } else if (evals.includes('TD') && evals.includes('Examen')) {
+      tdWeight = 0.4; examWeight = 0.6;
+    } else examWeight = 1.0;
+
+    const tdNum = parseGrade(moduleGrades.td)?.num || 0;
+    const tpNum = parseGrade(moduleGrades.tp)?.num || 0;
+    const currentSum = tdWeight * tdNum + tpWeight * tpNum;
+    const target = Math.max(10, module.noteEliminatoire || 0);
+    const examGrade = (target - currentSum) / examWeight;
+
+    const message = examGrade <= 0 ? 'Already passed.' : examGrade > 20 ? 'Impossible to pass.' : `Need ${examGrade.toFixed(2)}/20.`;
+    Alert.alert('Min Exam Grade', message);
   };
 
-  // --- Main Render Function ---
+  // --- Main Render ---
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.keyboardAvoidingView}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.contentContainer}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header */}
-        <View style={styles.headerSection}>
-          <Ionicons name="calculator-outline" size={32} color={colors.tint} />
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoidingView}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <Animated.View entering={FadeIn} style={styles.header}>
+          <Ionicons name="calculator" size={36} color={colors.tint} />
           <Text style={styles.title}>Grade Calculator</Text>
-          <Text style={styles.subtitle}>Calculate your semester average</Text>
-        </View>
+          <Text style={styles.subtitle}>Track Your Semester Progress</Text>
+        </Animated.View>
 
-        {/* Loading or Error Display */}
-        {isLoadingData && (
-          <View style={styles.centeredMessageContainer}>
+        {isLoadingData ? (
+          <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.tint} />
-            <Text style={styles.loadingText}>Loading data...</Text>
+            <Text style={styles.loadingText}>Loading...</Text>
           </View>
-        )}
-        {!isLoadingData && fetchError && (
-          <View style={styles.centeredMessageContainer}>
-            <Ionicons name="cloud-offline-outline" size={40} color={colors.danger} />
-            <Text style={[styles.infoText, { color: colors.danger }]}>{fetchError}</Text>
-            <TouchableOpacity onPress={fetchInitialData} style={styles.retryButton}>
-              <Text style={styles.retryButtonText}>Retry</Text>
+        ) : fetchError ? (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle" size={40} color={colors.danger} />
+            <Text style={styles.errorText}>{fetchError}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={fetchInitialData}>
+              <Text style={styles.retryText}>Retry</Text>
             </TouchableOpacity>
           </View>
-        )}
-
-        {/* Main Content */}
-        {!isLoadingData && !fetchError && (
+        ) : (
           <>
-            {/* Selection Card */}
-            <View style={styles.selectionCard}>
-              <Text style={styles.cardTitle}>Select Your Path</Text>
-              <View style={styles.pickerWrapper}>
-                <Text style={styles.pickerLabel}>
-                  <Ionicons name="school-outline" size={14} color={colors.textSecondary} />
-                  Year
-                </Text>
-                <RNPickerSelect
-                  onValueChange={value => setSelectedYearId(value)}
-                  items={yearOptions}
-                  style={pickerSelectStyles}
-                  value={selectedYearId}
-                  placeholder={{ label: 'Select a year', value: '' }}
-                  useNativeAndroidPickerStyle={false}
-                  Icon={() => (
-                    <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-                  )}
-                />
-              </View>
-              <View style={styles.pickerWrapper}>
-                <Text style={styles.pickerLabel}>
-                  <Ionicons name="book-outline" size={14} color={colors.textSecondary} />
-                  Specialty
-                </Text>
-                <RNPickerSelect
-                  onValueChange={value => setSelectedSpecialtyId(value)}
-                  items={specialiteOptions}
-                  style={pickerSelectStyles}
-                  value={selectedSpecialtyId}
-                  placeholder={{ label: 'Select a specialty', value: '' }}
-                  useNativeAndroidPickerStyle={false}
-                  Icon={() => (
-                    <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-                  )}
-                />
-              </View>
-              <View style={styles.pickerWrapper}>
-                <Text style={styles.pickerLabel}>
-                  <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
-                  Semester
-                </Text>
-                <RNPickerSelect
-                  onValueChange={value => setSelectedSemesterKey(value)}
-                  items={semestreOptions}
-                  style={pickerSelectStyles}
-                  value={selectedSemesterKey}
-                  placeholder={{ label: 'Select a semester', value: '' }}
-                  useNativeAndroidPickerStyle={false}
-                  Icon={() => (
-                    <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-                  )}
-                />
-              </View>
-            </View>
+            <Animated.View entering={FadeInUp.delay(200)} style={styles.selectionCard}>
+              <Text style={styles.cardTitle}>Your Path</Text>
+              <RNPickerSelect
+                onValueChange={setSelectedYearId}
+                items={yearOptions}
+                style={pickerSelectStyles}
+                value={selectedYearId}
+                placeholder={{}}
+                Icon={() => <Ionicons name="chevron-down" size={20} color={colors.text} />}
+              />
+              <RNPickerSelect
+                onValueChange={setSelectedSpecialtyId}
+                items={specialiteOptions}
+                style={pickerSelectStyles}
+                value={selectedSpecialtyId}
+                placeholder={{}}
+                Icon={() => <Ionicons name="chevron-down" size={20} color={colors.text} />}
+              />
+              <RNPickerSelect
+                onValueChange={setSelectedSemesterKey}
+                items={semestreOptions}
+                style={pickerSelectStyles}
+                value={selectedSemesterKey}
+                placeholder={{}}
+                Icon={() => <Ionicons name="chevron-down" size={20} color={colors.text} />}
+              />
+            </Animated.View>
 
-            {/* Storage Buttons */}
-            <View style={styles.storageButtonContainer}>
-              <TouchableOpacity
-                style={styles.storageButton}
-                onPress={saveGrades}
-                disabled={isSavingGrades}
-              >
-                {isSavingGrades ? (
-                  <ActivityIndicator size="small" color={colors.tint} />
-                ) : (
-                  <Ionicons name="save-outline" size={18} color={colors.tint} />
-                )}
-                <Text style={styles.storageButtonText}>
-                  {isSavingGrades ? 'Saving...' : 'Save'}
-                </Text>
+            <Animated.View entering={FadeInUp.delay(300)} style={styles.buttonRow}>
+              <TouchableOpacity style={styles.actionBtn} onPress={saveGrades} disabled={isSavingGrades}>
+                <Ionicons name="save" size={20} color={colors.tint} />
+                <Text style={styles.btnText}>{isSavingGrades ? 'Saving...' : 'Save'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.storageButton}
-                onPress={loadGrades}
-                disabled={isLoadingGrades}
-              >
-                {isLoadingGrades ? (
-                  <ActivityIndicator size="small" color={colors.tint} />
-                ) : (
-                  <Ionicons name="download-outline" size={18} color={colors.tint} />
-                )}
-                <Text style={styles.storageButtonText}>
-                  {isLoadingGrades ? 'Loading...' : 'Load'}
-                </Text>
+              <TouchableOpacity style={styles.actionBtn} onPress={loadGrades} disabled={isLoadingGrades}>
+                <Ionicons name="download" size={20} color={colors.tint} />
+                <Text style={styles.btnText}>{isLoadingGrades ? 'Loading...' : 'Load'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.storageButton, { borderColor: colors.danger }]}
-                onPress={clearGrades}
-              >
-                <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                <Text style={[styles.storageButtonText, { color: colors.danger }]}>
-                  Clear All
-                </Text>
+              <TouchableOpacity style={[styles.actionBtn, styles.clearBtn]} onPress={clearGrades}>
+                <Ionicons name="trash" size={20} color={colors.danger} />
+                <Text style={[styles.btnText, { color: colors.danger }]}>Clear</Text>
               </TouchableOpacity>
-            </View>
+            </Animated.View>
 
-            {/* Module Inputs */}
             <View style={styles.modulesSection}>
-              {currentModules.length > 0 && (
-                <Text style={styles.sectionTitle}>Enter Module Grades</Text>
-              )}
-              {renderModuleInputs()}
+              {currentModules.map(renderModuleCard)}
               {currentModules.length === 0 && selectedSemesterKey && (
-                <Text style={styles.infoText}>No modules found for {selectedSemesterKey}.</Text>
-              )}
-              {!selectedSemesterKey && selectedSpecialtyId && (
-                <Text style={styles.infoText}>Please select a semester.</Text>
-              )}
-              {!selectedSpecialtyId && (
-                <Text style={styles.infoText}>Please select a specialty.</Text>
+                <Text style={styles.infoText}>No modules found.</Text>
               )}
             </View>
 
-            {/* "What If" Section */}
-            <View style={styles.whatIfCard}>
-              <Text style={styles.cardTitle}>What If...?</Text>
-              <Text style={styles.whatIfDescription}>
-                Enter a target average to see the required exam grades.
-              </Text>
-              <View style={styles.whatIfInputRow}>
+            <Animated.View entering={FadeInUp.delay(400)} style={styles.whatIfCard}>
+              <Text style={styles.cardTitle}>What If?</Text>
+              <View style={styles.whatIfRow}>
                 <TextInput
                   style={styles.whatIfInput}
-                  placeholder="Target average (e.g., 12)"
-                  placeholderTextColor={colors.placeholderText}
+                  placeholder="Target Avg"
                   keyboardType="decimal-pad"
                   value={targetSemesterAverage}
                   onChangeText={setTargetSemesterAverage}
-                  maxLength={5}
                 />
-                <TouchableOpacity style={styles.whatIfButton} onPress={calculateWhatIf}>
-                  <FontAwesome name="question-circle" size={16} color={colors.tint} />
-                  <Text style={styles.whatIfButtonText}>Calculate</Text>
+                <TouchableOpacity style={styles.whatIfBtn} onPress={calculateWhatIf}>
+                  <Text style={styles.whatIfText}>Calculate</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </Animated.View>
 
-            {/* Calculate Button */}
-            {currentModules.length > 0 && (
-              <TouchableOpacity
-                style={[styles.calculateButton, isCalculating && styles.buttonDisabled]}
-                onPress={handleCalculatePress}
-                disabled={isCalculating}
-              >
-                {isCalculating ? (
-                  <ActivityIndicator size="small" color="#fff" style={styles.buttonActivityIndicator} />
-                ) : (
-                  <FontAwesome name="calculator" size={20} color="white" />
-                )}
-                <Text style={styles.calculateButtonText}>
-                  {isCalculating ? 'Calculating...' : 'Calculate Average'}
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Results Display */}
             {calculationResult && (
-              <View style={styles.resultsCard}>
-                <View
-                  style={[
-                    styles.averageDisplayBox,
-                    calculationResult.isValidated
-                      ? styles.averageBoxSuccess
-                      : styles.averageBoxFail,
-                  ]}
-                >
-                  <Ionicons
-                    name={calculationResult.isValidated ? 'checkmark-circle' : 'close-circle'}
-                    size={32}
-                    color={calculationResult.isValidated ? colors.success : colors.danger}
-                    style={styles.validationIcon}
-                  />
-                  <Text style={styles.averageLabel}>General Average</Text>
-                  <Text
-                    style={[
-                      styles.generalAverageValue,
-                      calculationResult.isValidated
-                        ? styles.averageStatusSuccess
-                        : styles.averageStatusFail,
-                    ]}
-                  >
-                    {calculationResult.average !== null
-                      ? calculationResult.average.toFixed(2)
-                      : '--.--'}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.validationStatus,
-                      calculationResult.isValidated
-                        ? styles.averageStatusSuccess
-                        : styles.averageStatusFail,
-                    ]}
-                  >
-                    {calculationResult.isValidated
-                      ? 'Validated'
-                      : calculationResult.hasEliminations
-                      ? 'Not Validated (Eliminations)'
-                      : 'Not Validated'}
-                  </Text>
+              <Animated.View entering={FadeInUp.delay(500)} style={styles.resultsCard}>
+                <Text style={styles.resultsTitle}>Semester Results</Text>
+                <Text style={[styles.resultsAvg, { color: calculationResult.isValidated ? colors.success : colors.danger }]}>
+                  {calculationResult.average?.toFixed(2) ?? '--.--'}
+                </Text>
+                <Text style={styles.resultsStatus}>
+                  {calculationResult.isValidated ? 'Validated' : 'Not Validated'}
+                </Text>
+                <View style={styles.creditsRow}>
+                  <Text style={styles.creditsText}>Attempted: {calculationResult.totalCreditsAttempted}</Text>
+                  <Text style={styles.creditsText}>Validated: {calculationResult.totalCreditsValidated}</Text>
                 </View>
-                <View style={styles.creditsSummaryBox}>
-                  <View style={styles.creditItem}>
-                    <Text style={styles.creditsLabel}>Credits Attempted</Text>
-                    <Text style={styles.creditsValue}>
-                      {calculationResult.totalCreditsAttempted}
-                    </Text>
-                  </View>
-                  <View style={styles.creditItem}>
-                    <Text style={styles.creditsLabel}>Credits Validated</Text>
-                    <Text style={styles.creditsValue}>
-                      {calculationResult.totalCreditsValidated}
-                    </Text>
-                  </View>
-                </View>
-              </View>
+              </Animated.View>
             )}
           </>
         )}
-
-        <View style={{ height: 80 }} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 // --- Styles ---
-const getStyles = (colorScheme: 'light' | 'dark', colors: typeof Colors.light | typeof Colors.dark) =>
-  StyleSheet.create({
-    keyboardAvoidingView: { flex: 1, backgroundColor: colors.background },
-    container: { flex: 1, backgroundColor: colors.background },
-    contentContainer: { paddingHorizontal: 15, paddingVertical: 20, paddingBottom: 60 },
-    headerSection: { alignItems: 'center', marginBottom: 25 },
-    title: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: colors.text,
-      textAlign: 'center',
-      marginBottom: 4,
-      marginTop: 5,
-    },
-    subtitle: { fontSize: 14, color: colors.textSecondary, textAlign: 'center' },
-    centeredMessageContainer: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 20,
-      minHeight: 200,
-    },
-    loadingText: { marginTop: 10, fontSize: 14, color: colors.textSecondary },
-    retryButton: {
-      marginTop: 20,
-      backgroundColor: colors.tint,
-      paddingVertical: 10,
-      paddingHorizontal: 25,
-      borderRadius: 8,
-    },
-    retryButtonText: { color: '#fff', fontWeight: 'bold' },
-    cardTitle: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: colors.text,
-      marginBottom: 15,
-      paddingBottom: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border + '80',
-      textAlign: 'left',
-      paddingLeft: 5,
-    },
-    selectionCard: {
-      marginBottom: 25,
-      backgroundColor: colors.cardBackground,
-      borderRadius: 12,
-      paddingVertical: 10,
-      paddingHorizontal: 15,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
-    },
-    pickerWrapper: { marginVertical: 9 },
-    pickerLabel: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      fontSize: 13,
-      fontWeight: '600',
-      color: colors.textSecondary,
-      marginBottom: 6,
-      marginLeft: 2,
-    },
-    storageButtonContainer: {
-      flexDirection: 'row',
-      justifyContent: 'space-evenly',
-      marginBottom: 25,
-    },
-    storageButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 9,
-      paddingHorizontal: 16,
-      backgroundColor: colors.cardBackground,
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.06,
-      shadowRadius: 2,
-      elevation: 1,
-    },
-    storageButtonText: { marginLeft: 8, fontSize: 13, color: colors.tint, fontWeight: '500' },
-    infoText: {
-      textAlign: 'center',
-      color: colors.textSecondary,
-      marginTop: 30,
-      fontSize: 15,
-      paddingHorizontal: 10,
-    },
-    modulesSection: { marginBottom: 20 },
-    sectionTitle: {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: colors.text,
-      marginBottom: 15,
-      marginTop: 10,
-      paddingLeft: 5,
-    },
-    moduleCard: {
-      backgroundColor: colors.cardBackground,
-      borderRadius: 10,
-      marginBottom: 15,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
-      overflow: 'hidden',
-    },
-    moduleHeader: { paddingHorizontal: 15, paddingTop: 12, paddingBottom: 8 },
-    moduleTitle: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 8 },
-    moduleInfoBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    moduleInfoBadge: {
-      fontSize: 10,
-      color: colors.textSecondary,
-      backgroundColor: colors.inputBackground,
-      paddingVertical: 3,
-      paddingHorizontal: 7,
-      borderRadius: 4,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    eliminationNoteBadge: {
-      color: colors.danger,
-      borderColor: colors.danger + '80',
-      backgroundColor: colors.danger + '15',
-    },
-    gradesInputSection: {
-      backgroundColor: colors.background + '50',
-      paddingHorizontal: 10,
-      paddingVertical: 15,
-      borderTopWidth: 1,
-      borderBottomWidth: 1,
-      borderColor: colors.border + '80',
-    },
-    inputsGrid: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start' },
-    inputWrapper: { alignItems: 'center', flex: 1, marginHorizontal: 3, maxWidth: 90 },
-    inputLabel: {
-      fontSize: 11,
-      fontWeight: '500',
-      color: colors.textSecondary,
-      marginBottom: 5,
-      textTransform: 'uppercase',
-    },
-    gradeInput: {
-      backgroundColor: colors.inputBackground,
-      borderColor: colors.inputBorder,
-      borderWidth: 1.5,
-      borderRadius: 8,
-      width: '95%',
-      paddingHorizontal: 5,
-      paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-      fontSize: 16,
-      fontWeight: '500',
-      color: colors.text,
-      textAlign: 'center',
-      minHeight: 42,
-    },
-    inputError: { borderColor: colors.danger, borderWidth: 1.5, backgroundColor: colors.danger + '10' },
-    moduleFooter: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingHorizontal: 15,
-      paddingVertical: 10,
-    },
-    moduleAverageDisplay: { flexDirection: 'row', alignItems: 'center' },
-    moduleAverageValue: { fontSize: 16, fontWeight: 'bold', textAlign: 'right' },
-    averageTextPending: { color: colors.textSecondary + 'A0' },
-    averageTextSuccess: { color: colors.success },
-    averageTextFail: { color: colors.danger },
-    minExamButton: {
-      backgroundColor: colors.tint,
-      paddingVertical: 6,
-      paddingHorizontal: 10,
-      borderRadius: 6,
-    },
-    minExamButtonText: {
-      color: '#fff',
-      fontSize: 12,
-      fontWeight: '500',
-    },
-    whatIfCard: {
-      marginTop: 15,
-      padding: 15,
-      backgroundColor: colors.cardBackground,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
-    },
-    whatIfDescription: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      marginBottom: 10,
-    },
-    whatIfInputRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    whatIfInput: {
-      flex: 1,
-      backgroundColor: colors.inputBackground,
-      borderColor: colors.inputBorder,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      fontSize: 15,
-      color: colors.text,
-    },
-    whatIfButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.tint + '1A',
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: colors.tint + '50',
-    },
-    whatIfButtonText: { marginLeft: 6, color: colors.tint, fontWeight: '500', fontSize: 13 },
-    calculateButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.tint,
-      paddingVertical: 15,
-      borderRadius: 12,
-      marginTop: 30,
-      marginHorizontal: 5,
-      shadowColor: colors.tint,
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: 0.3,
-      shadowRadius: 5,
-      elevation: 4,
-      minHeight: 52,
-    },
-    buttonDisabled: {
-      backgroundColor: colors.disabledBackground ?? '#9ca3af',
-      shadowOpacity: 0.1,
-      elevation: 1,
-      opacity: 0.7,
-    },
-    buttonActivityIndicator: { marginRight: 10 },
-    calculateButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginLeft: 8 },
-    resultsCard: {
-      marginTop: 30,
-      backgroundColor: colors.cardBackground,
-      borderRadius: 15,
-      paddingHorizontal: 0,
-      paddingBottom: 0,
-      paddingTop: 15,
-      marginHorizontal: 0,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 2,
-      borderWidth: 1,
-      borderColor: colors.border,
-      overflow: 'hidden',
-    },
-    averageDisplayBox: {
-      paddingVertical: 20,
-      paddingHorizontal: 20,
-      alignItems: 'center',
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border + '80',
-    },
-    averageBoxSuccess: {
-      backgroundColor: colorScheme === 'dark' ? 'rgba(22, 163, 74, 0.1)' : '#f0fdf4',
-    },
-    averageBoxFail: {
-      backgroundColor: colorScheme === 'dark' ? 'rgba(220, 38, 38, 0.1)' : '#fff1f2',
-    },
-    validationIcon: { marginBottom: 8 },
-    averageLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: 2 },
-    generalAverageValue: { fontSize: 36, fontWeight: 'bold', marginBottom: 4 },
-    validationStatus: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
-    averageStatusSuccess: { color: colors.success },
-    averageStatusFail: { color: colors.danger },
-    creditsSummaryBox: {
-      flexDirection: 'row',
-      justifyContent: 'space-around',
-      paddingVertical: 15,
-      backgroundColor: colors.inputBackground,
-    },
-    creditItem: { alignItems: 'center' },
-    creditsLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 2 },
-    creditsValue: { fontSize: 16, fontWeight: 'bold', color: colors.text },
-  });
+const getStyles = (colorScheme: 'light' | 'dark', colors: any) => StyleSheet.create({
+  keyboardAvoidingView: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
+  contentContainer: { padding: 20, paddingBottom: 100 },
+  header: { alignItems: 'center', marginBottom: 30 },
+  title: { fontSize: 28, fontWeight: 'bold', color: colors.text, marginTop: 10 },
+  subtitle: { fontSize: 16, color: colors.textSecondary },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
+  loadingText: { marginTop: 10, color: colors.textSecondary },
+  errorContainer: { alignItems: 'center', marginTop: 50 },
+  errorText: { color: colors.danger, marginVertical: 10 },
+  retryBtn: { backgroundColor: colors.tint, padding: 10, borderRadius: 8 },
+  retryText: { color: '#fff', fontWeight: 'bold' },
+  selectionCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 15,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  cardTitle: { fontSize: 18, fontWeight: 'bold', color: colors.text, marginBottom: 15 },
+  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardBackground,
+    padding: 12,
+    borderRadius: 10,
+    marginHorizontal: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    elevation: 2,
+  },
+  clearBtn: { borderWidth: 1, borderColor: colors.danger },
+  btnText: { marginLeft: 8, fontSize: 16, color: colors.tint },
+  modulesSection: { marginBottom: 20 },
+  moduleCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    elevation: 2,
+  },
+  moduleTitle: { fontSize: 18, fontWeight: '600', color: colors.text },
+  moduleInfo: { flexDirection: 'row', marginVertical: 8 },
+  badge: { backgroundColor: colors.inputBackground, padding: 5, borderRadius: 5, marginRight: 8, fontSize: 12 },
+  elimBadge: { backgroundColor: colors.danger + '20', color: colors.danger },
+  gradesContainer: { flexDirection: 'row', justifyContent: 'space-around' },
+  inputWrapper: { alignItems: 'center', flex: 1 },
+  inputLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 5 },
+  gradeInput: {
+    backgroundColor: colors.inputBackground,
+    borderRadius: 10,
+    padding: 10,
+    width: 60,
+    textAlign: 'center',
+    color: colors.text,
+    fontSize: 16,
+  },
+  moduleFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
+  avgText: { fontSize: 16, fontWeight: 'bold' },
+  minExamBtn: { backgroundColor: colors.tint, padding: 8, borderRadius: 8 },
+  minExamText: { color: '#fff', fontSize: 12 },
+  whatIfCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 15,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    elevation: 3,
+  },
+  whatIfRow: { flexDirection: 'row', alignItems: 'center' },
+  whatIfInput: {
+    flex: 1,
+    backgroundColor: colors.inputBackground,
+    borderRadius: 10,
+    padding: 12,
+    marginRight: 10,
+    color: colors.text,
+  },
+  whatIfBtn: { backgroundColor: colors.tint, padding: 12, borderRadius: 10 },
+  whatIfText: { color: '#fff', fontWeight: 'bold' },
+  resultsCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 15,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    elevation: 3,
+  },
+  resultsTitle: { fontSize: 20, fontWeight: 'bold', color: colors.text, marginBottom: 10 },
+  resultsAvg: { fontSize: 36, fontWeight: 'bold', textAlign: 'center' },
+  resultsStatus: { fontSize: 16, textAlign: 'center', color: colors.textSecondary, marginVertical: 5 },
+  creditsRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 10 },
+  creditsText: { fontSize: 14, color: colors.text },
+  infoText: { textAlign: 'center', color: colors.textSecondary, fontSize: 16, marginVertical: 20 },
+});
 
-const getPickerStyles = (
-  colorScheme: 'light' | 'dark',
-  colors: typeof Colors.light | typeof Colors.dark
-) =>
-  StyleSheet.create({
-    inputIOS: {
-      fontSize: 15,
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderWidth: 0,
-      color: colors.text,
-      paddingRight: 25,
-    },
-    inputAndroid: {
-      fontSize: 15,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderWidth: 0,
-      color: colors.text,
-      paddingRight: 25,
-    },
-    placeholder: {
-      color: colors.placeholderText,
-    },
-    iconContainer: {
-      top: 15,
-      right: 10,
-    },
-  });
+const getPickerStyles = (_colorScheme: 'light' | 'dark', colors: any) => StyleSheet.create({
+  inputIOS: {
+    backgroundColor: colors.inputBackground,
+    borderRadius: 10,
+    padding: 12,
+    marginVertical: 5,
+    color: colors.text,
+    fontSize: 16,
+  },
+  inputAndroid: {
+    backgroundColor: colors.inputBackground,
+    borderRadius: 10,
+    padding: 12,
+    marginVertical: 5,
+    color: colors.text,
+    fontSize: 16,
+  },
+  iconContainer: { top: 18, right: 10 },
+});
