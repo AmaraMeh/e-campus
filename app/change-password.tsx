@@ -15,9 +15,9 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useColorScheme } from '../../hooks/useColorScheme';
+import { useColorScheme } from '../hooks/useColorScheme';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '../../firebaseConfig';
+import { auth } from '../firebaseConfig';
 
 // Color Scheme
 const lightColors = {

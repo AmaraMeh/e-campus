@@ -1,3 +1,4 @@
+// File: app/(tabs)/modules.tsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
@@ -7,9 +8,7 @@ import {
   FlatList,
   Alert,
   ActivityIndicator,
-  Platform,
   Dimensions,
-  RefreshControl,
   SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
@@ -17,17 +16,35 @@ import { createMaterialTopTabNavigator } from '@react-navigation/material-top-ta
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import * as WebBrowser from 'expo-web-browser';
-
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
-import { Module, Resource } from '../../constants/Data';
+import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
+import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebaseConfig';
 import { useAuth } from '../contexts/AuthContext';
 import { useResources, DownloadedResourceMeta } from '../contexts/ResourceContext';
-import { db } from '../../firebaseConfig';
-import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+
+// Fallback for useColorScheme if custom hook is unavailable
+import { useColorScheme as useNativeColorScheme } from 'react-native';
+
+// Screen dimensions for iPhone 14 Pro Max optimization
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const Tab = createMaterialTopTabNavigator();
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Interfaces
+interface Module {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+interface Resource {
+  id: string;
+  title: string;
+  url: string;
+  type?: string;
+  source?: string;
+  moduleId: string;
+}
 
 interface ResourceListParams {
   resources: Resource[];
@@ -35,16 +52,34 @@ interface ResourceListParams {
   resourceType: string;
 }
 
-interface ResourceListProps {
-  route: { params: ResourceListParams };
-}
+// Color Scheme (Same as Home Screen)
+const lightColors = {
+  background: '#ffffff',
+  card: '#f8f8f8',
+  text: '#1a1a1a',
+  secondary: '#757575',
+  accent: '#007aff',
+  border: '#e0e0e0',
+  danger: '#ff3b30',
+  success: '#34c759',
+};
+const darkColors = {
+  background: '#121212',
+  card: '#1e1e1e',
+  text: '#ffffff',
+  secondary: '#a0a0a0',
+  accent: '#0a84ff',
+  border: '#333333',
+  danger: '#ff453a',
+  success: '#30d158',
+};
 
+// Resource Item Component
 const ResourceItem: React.FC<{
   resource: Resource;
   moduleName: string;
   resourceType: string;
-  styles: ReturnType<typeof createStyles>;
-  colors: typeof Colors.light;
+  colors: typeof lightColors | typeof darkColors;
   toggleFavorite: (id: string) => void;
   requestDownload: (resource: Resource, moduleName: string, resourceType: string) => void;
   isFavorite: (id: string) => boolean;
@@ -56,7 +91,6 @@ const ResourceItem: React.FC<{
     resource,
     moduleName,
     resourceType,
-    styles,
     colors,
     toggleFavorite,
     requestDownload,
@@ -69,22 +103,22 @@ const ResourceItem: React.FC<{
       try {
         await WebBrowser.openBrowserAsync(resource.url);
       } catch (error) {
-        Alert.alert('Error', "Couldn't open the link.");
+        Alert.alert('Erreur', 'Impossible d’ouvrir le lien.');
       }
     }, [resource.url]);
 
     const handleOpenOffline = useCallback(async (downloadInfo: DownloadedResourceMeta) => {
       try {
         if (!(await Sharing.isAvailableAsync())) {
-          throw new Error('Sharing not available');
+          throw new Error('Partage non disponible');
         }
         await Sharing.shareAsync(downloadInfo.localUri, {
-          dialogTitle: `Share "${downloadInfo.title}"`,
+          dialogTitle: `Partager "${downloadInfo.title}"`,
           mimeType: 'application/pdf',
           UTI: 'com.adobe.pdf',
         });
       } catch (error) {
-        Alert.alert('Error', "Couldn't open the file.");
+        Alert.alert('Erreur', 'Impossible d’ouvrir le fichier.');
       }
     }, []);
 
@@ -93,11 +127,11 @@ const ResourceItem: React.FC<{
       if (downloadInfo) {
         Alert.alert(
           `"${resource.title}"`,
-          'This file is already downloaded.',
+          'Ce fichier est déjà téléchargé.',
           [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: () => deleteDownload(resource.id) },
-            { text: 'Open', onPress: () => handleOpenOffline(downloadInfo) },
+            { text: 'Annuler', style: 'cancel' },
+            { text: 'Supprimer', style: 'destructive', onPress: () => deleteDownload(resource.id) },
+            { text: 'Ouvrir', onPress: () => handleOpenOffline(downloadInfo) },
           ],
           { cancelable: true }
         );
@@ -125,44 +159,44 @@ const ResourceItem: React.FC<{
       ? 'checkmark-circle'
       : 'cloud-download-outline';
     const downloadColor = downloading
-      ? colors.tint
+      ? colors.accent
       : downloaded
-      ? colors.success ?? '#16a34a'
-      : styles.actionIconColor.color;
+      ? colors.success
+      : colors.secondary;
 
     return (
-      <View style={styles.resourceItem}>
+      <Animated.View entering={FadeIn.duration(300)} style={[styles.resourceItem, { backgroundColor: colors.card }]}>
         <View style={styles.resourceInfo}>
-          <FontAwesome
-            name="file-text-o"
-            size={styles.iconSize}
-            color={colors.tint}
-            style={styles.resourceIcon}
-          />
+          <FontAwesome name="file-text-o" size={28} color={colors.accent} style={styles.resourceIcon} />
           <View style={styles.resourceTextContainer}>
-            <Text style={styles.resourceTitle} numberOfLines={2}>
+            <Text style={[styles.resourceTitle, { color: colors.text }]} numberOfLines={2}>
               {resource.title}
             </Text>
             {resource.source && (
-              <Text style={styles.sourceChip(resource.source === 'bejaia')}>
+              <Text
+                style={[
+                  styles.sourceChip,
+                  {
+                    backgroundColor: resource.source === 'bejaia' ? colors.accent : colors.border,
+                    color: resource.source === 'bejaia' ? '#fff' : colors.text,
+                  },
+                ]}
+              >
                 {resource.source.charAt(0).toUpperCase() + resource.source.slice(1)}
               </Text>
             )}
           </View>
         </View>
         <View style={styles.resourceActions}>
-          <TouchableOpacity
-            onPress={() => toggleFavorite(resource.id)}
-            style={styles.actionButton}
-          >
+          <TouchableOpacity onPress={() => toggleFavorite(resource.id)} style={styles.actionButton}>
             <Ionicons
               name={favorite ? 'star' : 'star-outline'}
-              size={styles.iconSize}
-              color={favorite ? '#FFD700' : colors.textSecondary}
+              size={28}
+              color={favorite ? '#FFD700' : colors.secondary}
             />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleViewOnline} style={styles.actionButton}>
-            <Ionicons name="cloud-outline" size={styles.iconSize} color={colors.tint} />
+            <Ionicons name="cloud-outline" size={28} color={colors.accent} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleDownloadPress}
@@ -170,31 +204,32 @@ const ResourceItem: React.FC<{
             disabled={downloading}
           >
             {downloading ? (
-              <ActivityIndicator size="small" color={colors.tint} />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <Ionicons name={downloadIcon} size={styles.iconSize} color={downloadColor} />
+              <Ionicons name={downloadIcon} size={28} color={downloadColor} />
             )}
           </TouchableOpacity>
         </View>
-      </View>
+      </Animated.View>
     );
   }
 );
 
-const ResourceList: React.FC<ResourceListProps> = ({ route }) => {
+// Resource List Component
+const ResourceList: React.FC<{ route: { params: ResourceListParams } }> = ({ route }) => {
   const { resources, moduleName, resourceType } = route.params;
-  const colorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[colorScheme];
-  const styles = useMemo(() => createStyles(colorScheme, colors), [colorScheme]);
-  const { toggleFavorite, requestDownload, isFavorite, getDownloadInfo, isDownloading, deleteDownload } =
-    useResources();
+  const colorScheme = useNativeColorScheme() ?? 'light'; // Fallback to native useColorScheme
+  const colors = colorScheme === 'dark' ? darkColors : lightColors;
+  const { toggleFavorite, requestDownload, isFavorite, getDownloadInfo, isDownloading, deleteDownload } = useResources();
 
   if (!resources?.length) {
     return (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="document-outline" size={60} color={colors.textSecondary} />
-        <Text style={styles.emptyText}>No resources available yet</Text>
-        <Text style={styles.emptySubText}>More resources will be added soon!</Text>
+      <View style={[styles.emptyContainer, { backgroundColor: colors.background }]}>
+        <Ionicons name="document-outline" size={64} color={colors.secondary} />
+        <Text style={[styles.emptyText, { color: colors.text }]}>Aucune ressource disponible</Text>
+        <Text style={[styles.emptySubText, { color: colors.secondary }]}>
+          Consultez plus tard pour de nouvelles ressources !
+        </Text>
       </View>
     );
   }
@@ -208,7 +243,6 @@ const ResourceList: React.FC<ResourceListProps> = ({ route }) => {
           resource={item}
           moduleName={moduleName}
           resourceType={resourceType}
-          styles={styles}
           colors={colors}
           toggleFavorite={toggleFavorite}
           requestDownload={requestDownload}
@@ -224,11 +258,11 @@ const ResourceList: React.FC<ResourceListProps> = ({ route }) => {
   );
 };
 
+// Main Module Detail Screen
 export default function ModuleDetailScreen() {
   const { moduleId } = useLocalSearchParams<{ moduleId: string }>();
-  const colorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[colorScheme];
-  const styles = useMemo(() => createStyles(colorScheme, colors), [colorScheme]);
+  const colorScheme = useNativeColorScheme() ?? 'light'; // Fallback to native useColorScheme
+  const colors = colorScheme === 'dark' ? darkColors : lightColors;
   const { currentUser } = useAuth();
 
   const [moduleData, setModuleData] = useState<Module | null>(null);
@@ -240,7 +274,7 @@ export default function ModuleDetailScreen() {
   const fetchData = useCallback(
     async (isRefresh = false) => {
       if (!moduleId || !db) {
-        setFetchError('Invalid module ID or database unavailable');
+        setFetchError('ID de module invalide ou base de données indisponible');
         setIsLoading(false);
         return;
       }
@@ -252,7 +286,7 @@ export default function ModuleDetailScreen() {
         const moduleDocRef = doc(db, 'modules', moduleId);
         const moduleSnap = await getDoc(moduleDocRef);
         if (!moduleSnap.exists()) {
-          throw new Error(`No module found for ID: ${moduleId}`);
+          throw new Error(`Aucun module trouvé pour l’ID : ${moduleId}`);
         }
         const fetchedModuleData = { id: moduleSnap.id, ...moduleSnap.data() } as Module;
         setModuleData(fetchedModuleData);
@@ -265,7 +299,7 @@ export default function ModuleDetailScreen() {
         })) as Resource[];
         setResources(fetchedResources);
       } catch (error: any) {
-        setFetchError(error.message || 'Failed to load data');
+        setFetchError(error.message || 'Échec du chargement des données');
         setModuleData(null);
         setResources([]);
       } finally {
@@ -292,13 +326,13 @@ export default function ModuleDetailScreen() {
 
   const tabConfig = useMemo(
     () => [
-      { key: 'cours', name: 'Courses', icon: 'book' },
+      { key: 'cours', name: 'Cours', icon: 'book' },
       { key: 'td', name: 'TD', icon: 'document-text' },
       { key: 'tp', name: 'TP', icon: 'flask' },
-      { key: 'compterendu', name: 'Reports', icon: 'clipboard' },
-      { key: 'interrogation', name: 'Quizzes', icon: 'help-circle' },
-      { key: 'examen', name: 'Exams', icon: 'school' },
-      { key: 'autres', name: 'Others', icon: 'ellipsis-horizontal' },
+      { key: 'compterendu', name: 'Rapports', icon: 'clipboard' },
+      { key: 'interrogation', name: 'Interrogations', icon: 'help-circle' },
+      { key: 'examen', name: 'Examens', icon: 'school' },
+      { key: 'autres', name: 'Autres', icon: 'ellipsis-horizontal' },
     ],
     []
   );
@@ -307,44 +341,52 @@ export default function ModuleDetailScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.tint} />
-        <Text style={styles.loadingText}>Loading module...</Text>
+      <SafeAreaView style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={[styles.loadingText, { color: colors.text }]}>Chargement du module...</Text>
       </SafeAreaView>
     );
   }
 
   if (fetchError || !moduleData) {
     return (
-      <SafeAreaView style={styles.errorContainer}>
-        <Ionicons name="warning" size={60} color={colors.danger} />
-        <Text style={styles.errorText}>{fetchError || 'Module not found'}</Text>
-        <TouchableOpacity onPress={() => fetchData()} style={styles.retryButton}>
-          <Text style={styles.retryButtonText}>Try Again</Text>
+      <SafeAreaView style={[styles.errorContainer, { backgroundColor: colors.background }]}>
+        <Ionicons name="warning" size={64} color={colors.danger} />
+        <Text style={[styles.errorText, { color: colors.danger }]}>
+          {fetchError || 'Module non trouvé'}
+        </Text>
+        <TouchableOpacity onPress={() => fetchData()} style={[styles.retryButton, { backgroundColor: colors.accent }]}>
+          <Text style={styles.retryButtonText}>Réessayer</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen
         options={{
-          headerTitle: moduleData.name || moduleId,
-          headerStyle: { backgroundColor: colors.background },
-          headerTitleStyle: { color: colors.text, fontSize: 18 },
-          headerTintColor: colors.tint,
+          headerShown: false,
         }}
       />
+      <Animated.View entering={SlideInDown.duration(500)} style={styles.header}>
+        <Text style={[styles.moduleTitle, { color: colors.text }]}>{moduleData.name || moduleId}</Text>
+        {moduleData.description && (
+          <Text style={[styles.moduleDescription, { color: colors.secondary }]}>
+            {moduleData.description}
+          </Text>
+        )}
+      </Animated.View>
       <Tab.Navigator
         screenOptions={{
           tabBarLabelStyle: styles.tabLabel,
-          tabBarStyle: styles.tabBar,
-          tabBarIndicatorStyle: { backgroundColor: colors.tint },
-          tabBarActiveTintColor: colors.tint,
-          tabBarInactiveTintColor: colors.textSecondary,
+          tabBarStyle: [styles.tabBar, { backgroundColor: colors.card }],
+          tabBarIndicatorStyle: { backgroundColor: colors.accent },
+          tabBarActiveTintColor: colors.accent,
+          tabBarInactiveTintColor: colors.secondary,
           tabBarScrollEnabled: availableTabs.length > 4,
         }}
+        sceneContainerStyle={{ backgroundColor: colors.background }}
       >
         {availableTabs.map((tab) => (
           <Tab.Screen
@@ -358,158 +400,157 @@ export default function ModuleDetailScreen() {
             }}
             options={{
               tabBarIcon: ({ color }) => (
-                <Ionicons name={tab.icon} size={20} color={color} />
+                <Ionicons name={tab.icon} size={22} color={color} />
               ),
+            }}
+            listeners={{
+              tabPress: () => setIsRefreshing(false), // Reset refreshing on tab switch
             }}
           />
         ))}
       </Tab.Navigator>
-      <RefreshControl
-        refreshing={isRefreshing}
-        onRefresh={() => fetchData(true)}
-        tintColor={colors.tint}
-      />
     </SafeAreaView>
   );
 }
 
-const createStyles = (
-  colorScheme: 'light' | 'dark',
-  colors: typeof Colors.light | typeof Colors.dark
-) => {
-  const basePadding = SCREEN_WIDTH * 0.04;
-  const baseFontSize = SCREEN_WIDTH * 0.045;
-
-  return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    loadingContainer: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      backgroundColor: colors.background,
-    },
-    loadingText: {
-      marginTop: basePadding,
-      fontSize: baseFontSize,
-      color: colors.textSecondary,
-    },
-    errorContainer: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      backgroundColor: colors.background,
-      padding: basePadding * 2,
-    },
-    errorText: {
-      color: colors.danger,
-      fontSize: baseFontSize * 1.1,
-      textAlign: 'center',
-      marginVertical: basePadding,
-    },
-    retryButton: {
-      backgroundColor: colors.tint,
-      paddingVertical: basePadding,
-      paddingHorizontal: basePadding * 2,
-      borderRadius: 25,
-    },
-    retryButtonText: {
-      color: '#fff',
-      fontSize: baseFontSize,
-      fontWeight: '600',
-    },
-    tabBar: {
-      backgroundColor: colors.background,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-      elevation: 0,
-    },
-    tabLabel: {
-      fontSize: baseFontSize * 0.8,
-      fontWeight: '600',
-      margin: 4,
-    },
-    listContainer: {
-      padding: basePadding,
-    },
-    separator: {
-      height: basePadding / 2,
-    },
-    emptyContainer: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: basePadding * 2,
-    },
-    emptyText: {
-      fontSize: baseFontSize * 1.1,
-      color: colors.text,
-      marginTop: basePadding,
-      fontWeight: '500',
-    },
-    emptySubText: {
-      fontSize: baseFontSize * 0.9,
-      color: colors.textSecondary,
-      marginTop: basePadding / 2,
-    },
-    resourceItem: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: basePadding,
-      backgroundColor: colors.cardBackground,
-      borderRadius: 15,
-      marginVertical: basePadding / 2,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
-    },
-    resourceInfo: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      flex: 1,
-      marginRight: basePadding,
-    },
-    resourceIcon: {
-      marginRight: basePadding,
-    },
-    resourceTextContainer: {
-      flex: 1,
-    },
-    resourceTitle: {
-      fontSize: baseFontSize,
-      color: colors.text,
-      fontWeight: '500',
-    },
-    sourceChip: (isBejaia: boolean) => ({
-      fontSize: baseFontSize * 0.7,
-      fontWeight: '600',
-      paddingVertical: 4,
-      paddingHorizontal: basePadding,
-      borderRadius: 20,
-      marginTop: basePadding / 2,
-      alignSelf: 'flex-start',
-      color: isBejaia ? '#FFFFFF' : colors.text,
-      backgroundColor: isBejaia ? colors.tint : colors.border,
-    }),
-    resourceActions: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: basePadding,
-    },
-    actionButton: {
-      padding: basePadding / 2,
-    },
-    actionButtonDisabled: {
-      opacity: 0.5,
-    },
-    actionIconColor: {
-      color: colors.textSecondary,
-    },
-    iconSize: baseFontSize * 1.3,
-  });
-};
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    padding: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: darkColors.border,
+  },
+  moduleTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  moduleDescription: {
+    fontSize: 16,
+    fontWeight: '400',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: '500',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  errorText: {
+    fontSize: 20,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginVertical: 16,
+  },
+  retryButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  tabBar: {
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  tabLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginVertical: 4,
+  },
+  listContainer: {
+    padding: 24,
+    paddingBottom: 80,
+  },
+  separator: {
+    height: 12,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emptyText: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptySubText: {
+    fontSize: 16,
+    fontWeight: '400',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  resourceItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    marginBottom: 12,
+  },
+  resourceInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 16,
+  },
+  resourceIcon: {
+    marginRight: 16,
+  },
+  resourceTextContainer: {
+    flex: 1,
+  },
+  resourceTitle: {
+    fontSize: 18,
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  sourceChip: {
+    fontSize: 12,
+    fontWeight: '600',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+  },
+  resourceActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  actionButton: {
+    padding: 8,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
+});
