@@ -9,274 +9,323 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  SafeAreaView, // Use SafeAreaView for top/bottom padding
+  StatusBar,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, Stack, useRouter } from 'expo-router';
-import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
-import { collection, getDocs } from 'firebase/firestore';
+import { Ionicons, FontAwesome } from '@expo/vector-icons'; // Keep FontAwesome for diverse icons if needed
+import * as Sharing from 'expo-sharing'; // Import Sharing
+import { collection, getDocs, query, where, documentId } from 'firebase/firestore'; // Import query tools
 
 // Adjust Paths
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
-import { Resource, Module } from '../../constants/Data';
-import { db } from '../../firebaseConfig';
-import AuthGuard from '../auth-guard';
+import { useColorScheme } from '../../hooks/useColorScheme'; // Assuming this hook provides 'light' | 'dark'
+import { Resource, Module } from '../../constants/Data'; // Assuming these interfaces exist
+import { db } from '../../firebaseConfig'; // Adjust path
+import AuthGuard from '../auth-guard'; // Assuming this handles auth redirection
+// *** Import the hook to use the Resource context ***
+import { useResources, DownloadedResourceMeta } from '../contexts/ResourceContext'; // Adjust path
 
-// Constants
-const FAVORITES_STORAGE_KEY = '@ModuleResourceFavorites';
-const DOWNLOADS_STORAGE_KEY = '@ModuleResourceDownloads';
-
-// Interface
-interface DownloadedResourceMeta extends Resource {
-  localUri: string;
-  downloadedAt: number;
-  moduleName?: string;
-  resourceType?: string;
-}
-
+// Interface combining Resource with optional Module data
 interface ResourceWithModule extends Resource {
-  module?: Module;
+  module?: Module; // Module details might be fetched separately
 }
 
 function FavoritesScreenContent() {
   const colorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[colorScheme];
-  const styles = getFavoritesStyles(colorScheme, colors);
+  const colors = getColors(colorScheme); // Use the same color fetching logic
+  const styles = getFavoritesStyles(colorScheme, colors); // Generate styles based on theme
   const router = useRouter();
 
-  // State
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [downloadedFiles, setDownloadedFiles] = useState<DownloadedResourceMeta[]>([]);
-  const [resources, setResources] = useState<ResourceWithModule[]>([]);
-  const [modules, setModules] = useState<Module[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // *** Get state and functions from ResourceContext ***
+  const {
+    favorites: favoriteIds, // Renaming for clarity within this component
+    downloadedFilesInfo,
+    isLoadingResources: isLoadingContextData, // Loading state from context
+    toggleFavorite, // Use context action
+    deleteDownload, // Use context action
+    loadResourceData, // Function to potentially trigger context reload
+    getDownloadInfo,
+    isDownloading, // Might be useful for showing spinners on downloads if needed here
+  } = useResources();
 
-  // Fetch Resources and Modules from Firestore
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  // State for data fetched *specifically* for this screen (resource/module details)
+  const [allResourcesDetails, setAllResourcesDetails] = useState<Map<string, ResourceWithModule>>(new Map());
+  const [allModules, setAllModules] = useState<Map<string, Module>>(new Map());
+  const [isFetchingDetails, setIsFetchingDetails] = useState(true); // Loading state for the details fetch
+  const [fetchDetailsError, setFetchDetailsError] = useState<string | null>(null);
 
-    try {
-      // Fetch all modules
-      const modulesQuery = collection(db, 'modules');
-      const modulesSnapshot = await getDocs(modulesQuery);
-      const modulesData = modulesSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Module[];
-      setModules(modulesData);
-
-      // Fetch all resources
-      const resourcesQuery = collection(db, 'resources');
-      const resourcesSnapshot = await getDocs(resourcesQuery);
-      const resourcesData = resourcesSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as ResourceWithModule[];
-
-      // Attach module data to each resource
-      const resourcesWithModules = resourcesData.map((resource) => {
-        const module = modulesData.find((m) => m.id === resource.moduleId);
-        return { ...resource, module };
-      });
-      setResources(resourcesWithModules);
-    } catch (err: any) {
-      console.error('Error fetching data:', err);
-      setError(err.message || 'Erreur lors du chargement des données.');
+  // Fetch details (Resource + Module names) only for favorited items ONCE
+  // This is more efficient than fetching ALL resources/modules every time
+  const fetchDetailsForFavorites = useCallback(async () => {
+    if (favoriteIds.size === 0) {
+        // No favorites, no need to fetch details
+        setAllResourcesDetails(new Map()); // Clear any previous details
+        setAllModules(new Map());
+        setIsFetchingDetails(false);
+        setFetchDetailsError(null);
+        return;
     }
-  }, []);
 
-  // Load Favorites and Downloads
-  const loadData = useCallback(async () => {
+    // Prevent fetching if already loading
+    if (isFetchingDetails && allResourcesDetails.size > 0) return;
+
+    console.log(`[FavoritesScreen] Fetching details for ${favoriteIds.size} favorite IDs...`);
+    setIsFetchingDetails(true);
+    setFetchDetailsError(null);
+
     try {
-      // Load favorites
-      const storedFavorites = await AsyncStorage.getItem(FAVORITES_STORAGE_KEY);
-      const favIds = storedFavorites
-        ? new Set<string>(JSON.parse(storedFavorites))
-        : new Set<string>();
-      setFavoriteIds(favIds);
+        // 1. Fetch Resource details for favorite IDs
+        const favoriteIdArray = Array.from(favoriteIds);
+        // Firestore 'in' query is limited (usually 10 or 30 items), chunk if necessary
+        const MAX_IN_QUERY_SIZE = 30; // Firestore limit for 'in' queries
+        let fetchedResourcesMap = new Map<string, ResourceWithModule>();
+        const moduleIdsToFetch = new Set<string>();
 
-      // Load downloads and verify files exist
-      const storedDownloads = await AsyncStorage.getItem(DOWNLOADS_STORAGE_KEY);
-      const downloads: DownloadedResourceMeta[] = storedDownloads
-        ? JSON.parse(storedDownloads)
-        : [];
-      const verifiedDownloads: DownloadedResourceMeta[] = [];
-      for (const download of downloads) {
-        try {
-          const fileInfo = await FileSystem.getInfoAsync(download.localUri);
-          if (fileInfo.exists) {
-            verifiedDownloads.push(download);
-          } else {
-            console.warn(`Download missing: ${download.localUri}`);
-          }
-        } catch (fileError) {
-          console.error(`Error checking file ${download.localUri}:`, fileError);
+        for (let i = 0; i < favoriteIdArray.length; i += MAX_IN_QUERY_SIZE) {
+             const chunkIds = favoriteIdArray.slice(i, i + MAX_IN_QUERY_SIZE);
+             if (chunkIds.length === 0) continue;
+
+             const resourcesQuery = query(collection(db, 'resources'), where(documentId(), 'in', chunkIds));
+             const resourcesSnapshot = await getDocs(resourcesQuery);
+             resourcesSnapshot.docs.forEach(doc => {
+                 const resData = { id: doc.id, ...doc.data() } as ResourceWithModule;
+                 fetchedResourcesMap.set(doc.id, resData);
+                 if (resData.moduleId) {
+                     moduleIdsToFetch.add(resData.moduleId);
+                 }
+             });
         }
-      }
-      setDownloadedFiles(verifiedDownloads);
-    } catch (e) {
-      console.error('Failed to load favorites/downloads:', e);
-      setError('Impossible de charger les favoris et téléchargements.');
+        console.log(`[FavoritesScreen] Fetched details for ${fetchedResourcesMap.size} resources.`);
+
+        // 2. Fetch Module details for needed modules
+        const moduleIdArray = Array.from(moduleIdsToFetch);
+        let fetchedModulesMap = new Map<string, Module>();
+
+         for (let i = 0; i < moduleIdArray.length; i += MAX_IN_QUERY_SIZE) {
+             const chunkIds = moduleIdArray.slice(i, i + MAX_IN_QUERY_SIZE);
+             if (chunkIds.length === 0) continue;
+
+             // Avoid fetching modules we might already have
+             const idsToFetchNow = chunkIds.filter(id => !allModules.has(id));
+             if (idsToFetchNow.length === 0) continue;
+
+             const modulesQuery = query(collection(db, 'modules'), where(documentId(), 'in', idsToFetchNow));
+             const modulesSnapshot = await getDocs(modulesQuery);
+             modulesSnapshot.docs.forEach(doc => {
+                 fetchedModulesMap.set(doc.id, { id: doc.id, ...doc.data() } as Module);
+             });
+         }
+         console.log(`[FavoritesScreen] Fetched details for ${fetchedModulesMap.size} new modules.`);
+
+        // 3. Combine fetched resources with module details
+        fetchedResourcesMap.forEach(res => {
+             if (res.moduleId) {
+                 res.module = fetchedModulesMap.get(res.moduleId) ?? allModules.get(res.moduleId); // Use newly fetched or existing
+             }
+         });
+
+        // 4. Update state
+         setAllResourcesDetails(prev => new Map([...prev, ...fetchedResourcesMap])); // Merge with potentially existing details
+         setAllModules(prev => new Map([...prev, ...fetchedModulesMap])); // Merge with potentially existing modules
+
+    } catch (err: any) {
+      console.error('[FavoritesScreen] Error fetching details:', err);
+      setFetchDetailsError(err.message || 'Erreur lors du chargement des détails.');
     } finally {
-      setIsLoading(false);
+      setIsFetchingDetails(false);
     }
-  }, []);
+  }, [favoriteIds, allModules]); // Re-fetch details if the set of favorite IDs changes
 
-  // Initial Load
+  // Fetch details when favorite IDs load or change
   useEffect(() => {
-    const initialize = async () => {
-      await fetchData();
-      await loadData();
-    };
-    initialize();
-  }, [fetchData, loadData]);
+    if (!isLoadingContextData) { // Fetch details only after context (and fav IDs) has loaded
+        fetchDetailsForFavorites();
+    }
+  }, [favoriteIds, isLoadingContextData, fetchDetailsForFavorites]);
 
-  // Reload on Focus
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
+  // Optional: Reload details on focus if needed (might be excessive)
+  // useFocusEffect(
+  //   useCallback(() => {
+  //     console.log("[FavoritesScreen] Focus effect - Refreshing details if needed");
+  //     // Re-fetch details only if favorites exist and details seem stale or missing
+  //     if (favoriteIds.size > 0 && (!isFetchingDetails)) {
+  //        // Maybe add a check here to see if all favorite IDs have details already?
+  //        fetchDetailsForFavorites();
+  //     }
+  //   }, [favoriteIds, isFetchingDetails, fetchDetailsForFavorites])
+  // );
 
-  // Actions
+  // --- Actions ---
+
+  // Remove Favorite (Uses Context)
   const handleRemoveFavorite = useCallback(
-    async (resourceId: string) => {
-      setFavoriteIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(resourceId);
-        AsyncStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(Array.from(newSet))).catch(
-          (e) => console.error('Failed to save after removing favorite:', e)
-        );
-        return newSet;
-      });
+    (resourceId: string) => {
+        // Optimistically update UI? Or wait for context? Let's just call context.
+        toggleFavorite(resourceId);
+        // Optionally remove details from local state if you want instant UI feedback before context update propagates
+        // setAllResourcesDetails(prev => {
+        //     const newMap = new Map(prev);
+        //     newMap.delete(resourceId);
+        //     return newMap;
+        // })
     },
-    []
+    [toggleFavorite]
   );
 
+  // Delete Download (Uses Context)
   const handleDeleteDownload = useCallback(
-    async (downloadToDelete: DownloadedResourceMeta) => {
+    (resourceId: string) => {
+      const downloadInfo = getDownloadInfo(resourceId); // Get info from context
+      if (!downloadInfo) return; // Should not happen if button is shown
+
       Alert.alert(
-        'Supprimer ?',
-        `"${downloadToDelete.title}" sera supprimé.`,
+        'Supprimer le Téléchargement?',
+        `"${downloadInfo.title}" (${downloadInfo.fileExtension}) sera supprimé de votre appareil.`,
         [
-          { text: 'Annuler' },
+          { text: 'Annuler', style: 'cancel' },
           {
             text: 'Supprimer',
             style: 'destructive',
-            onPress: async () => {
-              try {
-                await FileSystem.deleteAsync(downloadToDelete.localUri, { idempotent: true });
-                setDownloadedFiles((prev) => prev.filter((d) => d.id !== downloadToDelete.id));
-                await AsyncStorage.setItem(
-                  DOWNLOADS_STORAGE_KEY,
-                  JSON.stringify(downloadedFiles.filter((d) => d.id !== downloadToDelete.id))
-                );
-              } catch (e) {
-                console.error('Failed to delete download:', e);
-                Alert.alert('Erreur', 'Impossible de supprimer le fichier.');
-              }
+            onPress: () => {
+              deleteDownload(resourceId); // Call context action
             },
           },
-        ]
+        ],
+        { cancelable: true }
       );
     },
-    [downloadedFiles]
+    [deleteDownload, getDownloadInfo] // Depend on context functions
   );
 
-  const handleOpenFile = useCallback(
-    (download: DownloadedResourceMeta) => {
-      router.push({
-        pathname: '/pdf-viewer',
-        params: { uri: download.localUri, title: download.title },
-      });
-    },
-    [router]
-  );
+  // Open File (Uses Sharing) - Adapted from modules.tsx
+   const handleOpenFile = useCallback(async (downloadInfo: DownloadedResourceMeta) => {
+      if (!downloadInfo?.localUri) {
+          Alert.alert('Erreur', 'Fichier local introuvable.'); return;
+      }
+      try {
+          if (!(await Sharing.isAvailableAsync())) {
+               Alert.alert('Ouverture non supportée', "Impossible d'ouvrir ou partager."); return;
+          }
+          let mimeType: string | undefined;
+          const extension = downloadInfo.fileExtension?.toLowerCase();
+          if (extension === '.pdf') mimeType = 'application/pdf';
+          else if (extension === '.png') mimeType = 'image/png';
+          else if (extension === '.jpg' || extension === '.jpeg') mimeType = 'image/jpeg';
+          else if (extension === '.docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          else if (extension === '.xlsx') mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+          else if (extension === '.pptx') mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
-  const handleRetry = useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-    fetchData().then(() => loadData());
-  }, [fetchData, loadData]);
+          let uti: string | undefined;
+          if (extension === '.pdf') uti = 'com.adobe.pdf';
+          else if (extension === '.png') uti = 'public.png';
+          else if (extension === '.jpg' || extension === '.jpeg') uti = 'public.jpeg';
 
-  // Prepare Data
-  const favoriteResources = useMemo(() => {
-    return resources.filter((resource) => favoriteIds.has(resource.id));
-  }, [resources, favoriteIds]);
+          console.log(`Sharing: URI=${downloadInfo.localUri}, MIME=${mimeType}, UTI=${uti}`);
+          await Sharing.shareAsync(downloadInfo.localUri, { dialogTitle: `Ouvrir/Partager "${downloadInfo.title}"`, mimeType, UTI: uti });
+       } catch (error: any) {
+           console.error('Error sharing/opening file:', error);
+           let errorMessage = `Impossible d'ouvrir/partager "${downloadInfo.title}".`;
+           if (error.message?.includes('No Activity found')) errorMessage += " Aucune application installée pour ce type.";
+           else if (error instanceof Error) errorMessage += ` ${error.message}`;
+           Alert.alert('Erreur d\'ouverture', errorMessage);
+       }
+   }, []); // No external dependencies needed
 
-  // Render Item
+  // Retry Fetching Details
+  const handleRetryDetails = useCallback(() => {
+    fetchDetailsForFavorites();
+  }, [fetchDetailsForFavorites]);
+
+  // --- Prepare Data for Rendering ---
+  const favoriteResourcesWithDetails = useMemo(() => {
+    // Map favorite IDs to the details we have fetched
+    return Array.from(favoriteIds)
+            .map(id => allResourcesDetails.get(id))
+            .filter((res): res is ResourceWithModule => !!res); // Filter out any undefined results (if details fetch failed for some)
+            // Add sorting if desired e.g., .sort((a, b) => a.title.localeCompare(b.title));
+  }, [favoriteIds, allResourcesDetails]);
+
+  const downloadedFilesArray = useMemo(() => {
+      // Convert the map from context into an array for the FlatList
+      return Array.from(downloadedFilesInfo.values());
+      // Add sorting if desired e.g., .sort((a, b) => a.downloadedAt - b.downloadedAt);
+  }, [downloadedFilesInfo]);
+
+
+  // --- Render Item ---
   const renderItem = useCallback(
     ({ item, type }: { item: ResourceWithModule | DownloadedResourceMeta; type: 'favorite' | 'download' }) => {
-      const resource = item as ResourceWithModule;
+      const isFavoriteItem = type === 'favorite';
+      const resourceDetail = isFavoriteItem ? (item as ResourceWithModule) : null;
       const downloadMeta = type === 'download' ? (item as DownloadedResourceMeta) : null;
-      const moduleName = downloadMeta?.moduleName || resource.module?.name || 'Module Inconnu';
-      const resourceType = downloadMeta?.resourceType || resource.type || 'autre';
+
+      // Get data preferentially from downloadMeta if available, otherwise from resourceDetail
+      const displayTitle = downloadMeta?.title || resourceDetail?.title || 'Titre Inconnu';
+      const resourceId = downloadMeta?.id || resourceDetail?.id;
+      const moduleName = downloadMeta?.moduleName || resourceDetail?.module?.name || 'Module Inconnu';
+      const resourceType = downloadMeta?.resourceType || resourceDetail?.type || 'autre';
+      const fileExtension = downloadMeta?.fileExtension; // Only available for downloads
+
+      if (!resourceId) return null; // Should not happen if data is clean
 
       // Determine icon based on resource type
-      let iconName: string;
+      let iconName: string; // Use string for FontAwesome name prop
       switch (resourceType.toLowerCase()) {
-        case 'cours':
-          iconName = 'book';
-          break;
-        case 'td':
-          iconName = 'pencil';
-          break;
-        case 'tp':
-          iconName = 'flask';
-          break;
-        case 'examen':
-          iconName = 'file-text';
-          break;
-        case 'compterendu':
-          iconName = 'clipboard';
-          break;
-        case 'interrogation':
-          iconName = 'question-circle';
-          break;
-        default:
-          iconName = 'file';
+        case 'cours': iconName = 'book'; break;
+        case 'td': iconName = 'pencil'; break;
+        case 'tp': iconName = 'flask'; break;
+        case 'examen': iconName = 'file-text'; break; // Or graduation-cap?
+        case 'compterendu': iconName = 'clipboard'; break;
+        case 'interrogation': iconName = 'question-circle'; break;
+        default: iconName = 'file'; break;
       }
 
       return (
         <View style={styles.itemContainer}>
+          {/* Info Section */}
           <View style={styles.itemInfo}>
-            <FontAwesome name={iconName} size={20} color={colors.tint} style={styles.itemIcon} />
+            <FontAwesome name={iconName as any} size={24} color={colors.accent} style={styles.itemIcon} />
             <View style={styles.itemTextContainer}>
               <Text style={styles.itemTitle} numberOfLines={2}>
-                {resource.title || 'Titre Inconnu'}
+                {displayTitle}
               </Text>
               <Text style={styles.itemSubtitle}>{moduleName}</Text>
               {downloadMeta && (
                 <Text style={styles.itemDate}>
-                  Téléchargé : {new Date(downloadMeta.downloadedAt).toLocaleDateString()}
+                  Téléchargé {new Date(downloadMeta.downloadedAt).toLocaleDateString()} ({fileExtension})
                 </Text>
               )}
             </View>
           </View>
+
+          {/* Actions Section */}
           <View style={styles.itemActions}>
-            {type === 'favorite' && (
+            {isFavoriteItem && (
               <TouchableOpacity
-                onPress={() => handleRemoveFavorite(resource.id)}
+                onPress={() => handleRemoveFavorite(resourceId)}
                 style={styles.actionButton}
+                accessibilityLabel="Retirer des favoris"
               >
-                <Ionicons name="star" size={24} color={colors.tint} />
+                {/* Show filled star for favorites */}
+                <Ionicons name="star" size={24} color={colors.favorite} />
               </TouchableOpacity>
             )}
-            {type === 'download' && downloadMeta && (
+            {downloadMeta && (
               <>
+                {/* Open Button */}
                 <TouchableOpacity
                   onPress={() => handleOpenFile(downloadMeta)}
                   style={styles.actionButton}
+                  accessibilityLabel="Ouvrir le fichier"
                 >
-                  <Ionicons name="eye-outline" size={24} color={colors.textSecondary} />
+                  <Ionicons name="document-outline" size={24} color={colors.text} />
                 </TouchableOpacity>
+                {/* Delete Button */}
                 <TouchableOpacity
-                  onPress={() => handleDeleteDownload(downloadMeta)}
+                  onPress={() => handleDeleteDownload(resourceId)}
                   style={styles.actionButton}
-                >
+                   accessibilityLabel="Supprimer le téléchargement"
+               >
                   <Ionicons name="trash-outline" size={24} color={colors.danger} />
                 </TouchableOpacity>
               </>
@@ -285,74 +334,88 @@ function FavoritesScreenContent() {
         </View>
       );
     },
-    [colors, handleRemoveFavorite, handleDeleteDownload, handleOpenFile]
+    [colors, handleRemoveFavorite, handleDeleteDownload, handleOpenFile, styles] // Dependencies for renderItem
   );
 
-  // Loading State
-  if (isLoading) {
+  // --- Loading State ---
+  // Show loading if context is loading OR if fetching details for favorites
+  if (isLoadingContextData || (isFetchingDetails && favoriteIds.size > 0 && favoriteResourcesWithDetails.length === 0)) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.tint} />
-        <Text style={styles.loadingText}>Chargement...</Text>
-      </View>
+      <SafeAreaView style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+         <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={[styles.loadingText, { color: colors.secondary }]}>Chargement...</Text>
+      </SafeAreaView>
     );
   }
 
-  // Error State
-  if (error) {
+  // --- Error State ---
+  // Show error if fetching details failed (context errors might be handled globally)
+  if (fetchDetailsError) {
     return (
-      <View style={styles.emptyStateContainer}>
+      <SafeAreaView style={[styles.emptyStateContainer, { backgroundColor: colors.background }]}>
+         <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
         <Ionicons name="warning-outline" size={60} color={colors.danger} />
-        <Text style={styles.errorText}>Erreur : {error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+        <Text style={styles.errorText}>Erreur : {fetchDetailsError}</Text>
+        <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.accent }]} onPress={handleRetryDetails}>
           <Text style={styles.retryButtonText}>Réessayer</Text>
         </TouchableOpacity>
-      </View>
+      </SafeAreaView>
     );
   }
 
-  // Main Render
+  // --- Main Render ---
+  const combinedData = [
+       ...(favoriteResourcesWithDetails.length > 0
+          ? [{ id: 'fav-header', type: 'header', title: 'Mes Favoris' } as const] // Header object
+          : []),
+       ...favoriteResourcesWithDetails.map((item) => ({ ...item, type: 'favorite' as const })), // Mark as favorite type
+       ...(downloadedFilesArray.length > 0
+          ? [{ id: 'dl-header', type: 'header', title: 'Mes Téléchargements' } as const] // Header object
+          : []),
+       ...downloadedFilesArray.map((item) => ({ ...item, type: 'download' as const })), // Mark as download type
+    ];
+
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <Stack.Screen
         options={{
           headerTitle: 'Favoris & Téléchargements',
           headerShown: true,
-          headerStyle: { backgroundColor: colors.cardBackground },
+          headerStyle: { backgroundColor: colors.card }, // Match card background
           headerTitleStyle: { color: colors.text, fontWeight: 'bold' },
-          headerTintColor: colors.tint,
-          headerRight: () => (
-            <TouchableOpacity onPress={handleRetry} style={{ marginRight: 15 }}>
-              <Ionicons name="refresh" size={24} color={colors.tint} />
-            </TouchableOpacity>
-          ),
+          headerTintColor: colors.accent, // Color for back button, etc.
+          headerShadowVisible: false, // Cleaner look
+          headerBorderWidth: StyleSheet.hairlineWidth,
+          headerBorderColor: colors.separator,
+          // Optional: Add a refresh button for the details fetch
+          // headerRight: () => (
+          //   <TouchableOpacity onPress={handleRetryDetails} style={{ marginRight: 15 }}>
+          //     <Ionicons name="refresh" size={24} color={colors.accent} />
+          //   </TouchableOpacity>
+          // ),
         }}
       />
 
-      {favoriteResources.length === 0 && downloadedFiles.length === 0 ? (
+      {combinedData.length === 0 ? ( // Check combined length (excluding potential headers if logic was different)
         <View style={styles.emptyStateContainer}>
-          <Ionicons name="star-outline" size={60} color={`${colors.textSecondary}80`} />
+          <Ionicons name="star-outline" size={60} color={colors.secondary} />
           <Text style={styles.emptyTextLarge}>Aucun favori ni téléchargement</Text>
           <Text style={styles.emptyTextSmall}>
-            Ajoutez des favoris ou téléchargez des ressources depuis les modules.
+            Marquez des ressources comme favorites ou téléchargez-les depuis les modules.
           </Text>
-          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-            <Text style={styles.retryButtonText}>Rafraîchir</Text>
-          </TouchableOpacity>
+          {/* Optional: Button to navigate somewhere */}
+           <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.accent }]} onPress={() => router.push('/(tabs)/')}>
+               <Text style={styles.retryButtonText}>Explorer les Modules</Text>
+           </TouchableOpacity>
         </View>
       ) : (
         <FlatList
-          data={[
-            ...(favoriteResources.length > 0
-              ? [{ id: 'favorites-header', type: 'header', title: 'Mes Favoris' }]
-              : []),
-            ...favoriteResources.map((item) => ({ ...item, type: 'favorite' })),
-            ...(downloadedFiles.length > 0
-              ? [{ id: 'downloads-header', type: 'header', title: 'Mes Téléchargements' }]
-              : []),
-            ...downloadedFiles.map((item) => ({ ...item, type: 'download' })),
-          ]}
+          data={combinedData}
           renderItem={({ item }) => {
+            // Render header items
             if (item.type === 'header') {
               return (
                 <View style={styles.sectionHeader}>
@@ -360,154 +423,194 @@ function FavoritesScreenContent() {
                 </View>
               );
             }
-            return renderItem({ item, type: item.type as 'favorite' | 'download' });
+            // Render favorite or download items
+            return renderItem({ item, type: item.type });
           }}
-          keyExtractor={(item) =>
-            item.type === 'header' ? item.id : `${item.type}-${item.id}`
-          }
+          keyExtractor={(item) => `${item.type}-${item.id}`} // Unique key combining type and ID
           contentContainerStyle={styles.listContainer}
-          ListFooterComponent={<View style={{ height: 30 }} />}
+          ItemSeparatorComponent={() => <View style={styles.listSeparator} />} // Optional separator between items
+          ListFooterComponent={<View style={{ height: 30 }} />} // Space at the bottom
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
-// Styles
+// Define SPACING here, before styles are used
+const SPACING = 8;
+
+// Base colors and getColors function needed here too
+const baseColorsFavorites = { /* ... copy from modules.tsx ... */
+  blue: '#007AFF', lightGray: '#E5E5EA', mediumGray: '#AEAEB2', darkGray: '#8E8E93',
+  black: '#000000', white: '#FFFFFF', red: '#FF3B30', green: '#34C759',
+  yellow: '#FFCC00', offWhite: '#F2F2F7', nearBlack: '#1C1C1E', darkSurface: '#2C2C2E',
+  hairline: Platform.select({ ios: '#C6C6C8', android: '#D1D1D6' }),
+};
+const getColorsFavorites = (scheme: 'light' | 'dark') => { /* ... copy from modules.tsx ... */
+   const isDark = scheme === 'dark';
+   return {
+     background: isDark ? baseColorsFavorites.black : baseColorsFavorites.offWhite,
+     card: isDark ? baseColorsFavorites.nearBlack : baseColorsFavorites.white,
+     text: isDark ? baseColorsFavorites.white : baseColorsFavorites.black,
+     secondary: isDark ? baseColorsFavorites.mediumGray : baseColorsFavorites.darkGray,
+     accent: baseColorsFavorites.blue,
+     border: isDark ? baseColorsFavorites.darkSurface : (baseColorsFavorites.hairline ?? baseColorsFavorites.lightGray),
+     separator: isDark ? baseColorsFavorites.darkSurface : (baseColorsFavorites.hairline ?? baseColorsFavorites.lightGray),
+     danger: baseColorsFavorites.red,
+     success: baseColorsFavorites.green,
+     favorite: baseColorsFavorites.yellow, // Use favorite color
+     // Add other needed colors if getFavoritesStyles uses them
+     buttonText: baseColorsFavorites.white,
+   };
+};
+// Redefine getColors locally or import from a central theme file
+const getColors = getColorsFavorites;
+
+// --- Styles --- (Adapted to use common color names)
 const getFavoritesStyles = (
   colorScheme: 'light' | 'dark',
-  colors: typeof Colors.light | typeof Colors.dark
+  colors: ReturnType<typeof getColors> // Use the same color type
 ) => {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+      // backgroundColor set dynamically
     },
     listContainer: {
-      padding: 15,
-      paddingBottom: 40,
+      paddingVertical: SPACING * 2,
+      paddingHorizontal: SPACING * 1.5, // Slightly less horizontal padding for list
+    },
+    listSeparator: {
+        height: SPACING * 1.5, // Space between items
     },
     loadingContainer: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      backgroundColor: colors.background,
+      // backgroundColor set dynamically
       padding: 20,
     },
     loadingText: {
-      marginTop: 10,
+      marginTop: SPACING * 1.5,
       fontSize: 16,
-      color: colors.text,
+      // color set dynamically
     },
     emptyStateContainer: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: 30,
-      backgroundColor: colors.background,
+      padding: SPACING * 4,
+      // backgroundColor set dynamically
+      textAlign: 'center',
     },
     emptyTextLarge: {
       fontSize: 20,
       fontWeight: '600',
-      color: colors.text,
+      // color set dynamically
       textAlign: 'center',
-      marginTop: 20,
-      marginBottom: 10,
+      marginTop: SPACING * 2.5,
+      marginBottom: SPACING,
     },
     emptyTextSmall: {
       fontSize: 14,
-      color: colors.textSecondary,
+      // color set dynamically (secondary)
       textAlign: 'center',
       lineHeight: 20,
-      marginBottom: 20,
+      marginBottom: SPACING * 2.5,
     },
     errorText: {
       fontSize: 18,
-      color: colors.danger,
-      textAlign: 'center',
-      marginTop: 20,
-      marginBottom: 20,
-    },
-    retryButton: {
-      backgroundColor: colors.tint,
-      paddingVertical: 12,
-      paddingHorizontal: 24,
-      borderRadius: 8,
-      marginTop: 10,
-    },
-    retryButtonText: {
-      color: colors.background,
-      fontSize: 16,
       fontWeight: '600',
+      // color set dynamically (danger)
+      textAlign: 'center',
+      marginTop: SPACING * 2,
+      marginBottom: SPACING * 2,
+    },
+    retryButton: { // Re-use button style from modules.tsx
+       flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+       paddingVertical: SPACING * 1.25, paddingHorizontal: SPACING * 2.5,
+       borderRadius: SPACING * 3, minWidth: 140, marginTop: SPACING, // Reduced top margin
+       // backgroundColor set dynamically (accent)
+       shadowColor: baseColorsFavorites.black, shadowOffset: { width: 0, height: 2 },
+       shadowOpacity: 0.15, shadowRadius: 3, elevation: 3,
+    },
+    retryButtonText: { // Re-use button text style
+      fontSize: 16, fontWeight: '600', textAlign: 'center',
+      color: colors.buttonText, // Use buttonText color
     },
     sectionHeader: {
-      backgroundColor: colors.cardBackground,
-      paddingVertical: 12,
-      paddingHorizontal: 15,
-      borderRadius: 12,
-      marginBottom: 10,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
+      // backgroundColor: colors.background, // Make header blend more? Or use card?
+      paddingVertical: SPACING * 1.5,
+      paddingHorizontal: SPACING * 0.5, // Less horizontal padding for header
+      marginBottom: SPACING * 1.5,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.separator,
     },
     sectionTitle: {
       fontSize: 20,
-      fontWeight: '700',
+      fontWeight: 'bold', // Bold section titles
       color: colors.text,
     },
     itemContainer: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      backgroundColor: colors.cardBackground,
+      backgroundColor: colors.card, // Use card background for items
       borderRadius: 12,
-      padding: 15,
-      marginBottom: 10,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.08,
-      shadowRadius: 3,
-      elevation: 2,
+      paddingHorizontal: SPACING * 1.5,
+      paddingVertical: SPACING * 1.5,
+      // Add subtle shadow/elevation like ResourceItem
+       shadowColor: baseColorsFavorites.black,
+       shadowOffset: { width: 0, height: 1 },
+       shadowOpacity: colorScheme === 'light' ? 0.08 : 0.15, // Adjust opacity for dark/light
+       shadowRadius: 3,
+       elevation: 2,
     },
     itemInfo: {
       flexDirection: 'row',
       alignItems: 'center',
-      flex: 1,
-      marginRight: 10,
+      flex: 1, // Allow info to take available space
+      marginRight: SPACING, // Space before actions
     },
     itemIcon: {
-      marginRight: 12,
+      marginRight: SPACING * 1.5, // Space next to icon
+       width: 28, // Consistent width for icon area
+       textAlign: 'center',
     },
     itemTextContainer: {
-      flex: 1,
+      flex: 1, // Allow text to wrap
     },
     itemTitle: {
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: '600', // Slightly bolder title
       color: colors.text,
+      marginBottom: SPACING * 0.25,
     },
     itemSubtitle: {
       fontSize: 14,
-      color: colors.textSecondary,
-      marginTop: 4,
+      color: colors.secondary,
+      marginTop: SPACING * 0.25,
     },
-    itemDate: {
+    itemDate: { // Style for download date/extension
       fontSize: 12,
-      color: colors.textSecondary,
-      marginTop: 4,
+      color: colors.secondary,
+      marginTop: SPACING * 0.5,
     },
     itemActions: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 15,
+      gap: SPACING, // Use gap for spacing between action buttons
     },
-    actionButton: {
-      padding: 8,
+    actionButton: { // Re-use action button style
+      padding: SPACING,
+      justifyContent: 'center',
+      alignItems: 'center',
+      minWidth: 40, // Minimum touch target
+      minHeight: 40,
     },
   });
 };
 
-// Export with AuthGuard
+
+// Export the component wrapped in the AuthGuard HOC
 export default AuthGuard(FavoritesScreenContent);

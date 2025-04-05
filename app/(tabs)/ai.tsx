@@ -10,228 +10,151 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Modal,
-  Pressable,
   Share,
-  Dimensions,
-  Image,
+  Modal,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import Slider from '@react-native-community/slider';
-import Constants from 'expo-constants';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Speech from 'expo-speech';
-import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
 import { Stack } from 'expo-router';
-import Animated, { FadeIn, FadeInUp, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
+import { useColorScheme } from 'react-native';
 
-// --- Configuration ---
-interface Theme {
-  background: string;
-  cardBackground: string;
-  text: string;
-  textSecondary: string;
-  textContrast: string;
-  tint: string;
-  border: string;
-  inputBackground: string;
-  inputBorder: string;
-  placeholderText: string;
-  iconPrimary: string;
-  iconSecondary: string;
-  success: string;
-  danger: string;
-  shadowColor: string;
-  gradientStart: string;
-  gradientEnd: string;
-  statusBar: 'light-content' | 'dark-content';
-}
-
-const THEMES: { [key: string]: Theme } = {
-  dark: {
-    background: '#0F1419',
-    cardBackground: '#1C2526',
-    text: '#E6ECEF',
-    textSecondary: '#A3B1B8',
-    textContrast: '#FFFFFF',
-    tint: '#1DA1F2',
-    border: '#2A3439',
-    inputBackground: '#252F34',
-    inputBorder: '#3E4A50',
-    placeholderText: '#6B7A83',
-    iconPrimary: '#E6ECEF',
-    iconSecondary: '#A3B1B8',
-    success: '#2ECC71',
-    danger: '#E74C3C',
-    shadowColor: '#000000',
-    gradientStart: '#1DA1F2',
-    gradientEnd: '#3498DB',
-    statusBar: 'light-content',
-  },
-  light: {
-    background: '#F5F7FA',
-    cardBackground: '#FFFFFF',
-    text: '#2C3E50',
-    textSecondary: '#7F8C8D',
-    textContrast: '#FFFFFF',
-    tint: '#3498DB',
-    border: '#DDE4E9',
-    inputBackground: '#ECF0F1',
-    inputBorder: '#BDC3C7',
-    placeholderText: '#95A5A6',
-    iconPrimary: '#2C3E50',
-    iconSecondary: '#7F8C8D',
-    success: '#27AE60',
-    danger: '#C0392B',
-    shadowColor: '#000000',
-    gradientStart: '#3498DB',
-    gradientEnd: '#5DADE2',
-    statusBar: 'dark-content',
-  },
+// Color Scheme
+const lightColors = {
+  background: '#ffffff',
+  card: '#f5f5f5',
+  text: '#212121',
+  secondary: '#757575',
+  accent: '#0288d1',
+  border: '#e0e0e0',
+  danger: '#d32f2f',
+  success: '#388e3c',
+};
+const darkColors = {
+  background: '#121212',
+  card: '#1e1e1e',
+  text: '#e0e0e0',
+  secondary: '#9e9e9e',
+  accent: '#29b6f6',
+  border: '#424242',
+  danger: '#f44336',
+  success: '#4caf50',
 };
 
-const AIML_API_KEY = Constants.expoConfig?.extra?.aimlApiKey || process.env.AIML_API_KEY;
-const AIML_API_URL = 'https://api.aimlapi.com/v1/chat/completions';
-const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY'; // Replace with your actual Gemini API key
+// Configuration
+const GEMINI_API_KEY = 'AIzaSyDRZmDyvpJ77R-BHHt9bypHRzUuVrFFWU4';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-
 const MODELS = [
-  { name: 'Mistral 7B', value: 'mistralai/Mistral-7B-Instruct-v0.2', api: 'aiml' },
-  { name: 'Mixtral 8x7B', value: 'mistralai/Mixtral-8x7B-Instruct-v0.1', api: 'aiml' },
-  { name: 'GPT-4o Mini', value: 'openai/gpt-4o-mini', api: 'aiml' },
-  { name: 'Llama 3 8B', value: 'meta-llama/Meta-Llama-3-8B-Instruct', api: 'aiml' },
-  { name: 'Llama 3 70B', value: 'meta-llama/Meta-Llama-3-70B-Instruct', api: 'aiml' },
-  { name: 'Gemini 1.5 Flash', value: 'gemini-1.5-flash', api: 'gemini' },
-  { name: 'Gemini 1.5 Pro', value: 'gemini-1.5-pro', api: 'gemini' },
+  { name: 'Gemini 1.5 Flash', value: 'gemini-1.5-flash' },
+  { name: 'Gemini 1.5 Pro', value: 'gemini-1.5-pro' },
 ];
-const DEFAULT_MODEL = MODELS[1].value;
-
+const DEFAULT_MODEL = MODELS[0].value;
 const STORAGE_KEYS = {
-  MESSAGES: '@campusAIChatMessages_v6',
-  MODEL: '@campusAISelectedModel_v6',
-  THEME: '@campusAITheme_v6',
-  INSTRUCTIONS: '@campusAIInstructions_v6',
-  FONT_SIZE: '@campusAIFontSize_v6',
+  MESSAGES: '@campusAIChatMessages_v9',
+  MODEL: '@campusAISelectedModel_v9',
 };
-const WELCOME_MESSAGE = "Salut ! Je suis Campus AI, ton assistant universitaire. Comment puis-je t'aider ?";
+const WELCOME_MESSAGE = "Hello! I’m Campus AI, created by Amara Mehdi to support your university journey. Ask me anything!";
 
+// Interfaces
 interface ChatMessage {
   id: string;
   text: string;
   sender: 'user' | 'ai';
   timestamp: number;
   pinned?: boolean;
-  isLoading?: boolean;
   isError?: boolean;
   fileInfo?: { name: string; size: number; type: string; uri?: string };
   imageUri?: string;
 }
 
-type InputMode = 'text' | 'voice';
-type AiInteractionMode = 'normal' | 'deepSearch' | 'think';
+type AiInteractionMode = 'normal' | 'deepSearch';
 
-// --- Utility Functions ---
+// Utility Functions
 const generateId = (): string => `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 const formatTimestamp = (timestamp: number): string =>
   new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-// --- Components ---
+// Components
 const MessageBubble: React.FC<{
   item: ChatMessage;
-  styles: any;
-  colors: Theme;
+  colors: any;
   onSpeak: (text: string) => void;
   onCopy: (text: string) => void;
   onShare: (text: string) => void;
   onPin: (id: string) => void;
-  fontSize: number;
-}> = React.memo(({ item, styles, colors, onSpeak, onCopy, onShare, onPin, fontSize }) => {
+}> = React.memo(({ item, colors, onSpeak, onCopy, onShare, onPin }) => {
   const isUser = item.sender === 'user';
-  const scale = useSharedValue(1);
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: withSpring(scale.value) }],
-  }));
-
   return (
     <Animated.View
-      entering={FadeInUp.delay(100)}
-      style={[styles.messageContainer, isUser ? styles.userMessage : styles.aiMessage, item.pinned && styles.pinnedMessage, animatedStyle]}
-      onTouchStart={() => (scale.value = 0.98)}
-      onTouchEnd={() => (scale.value = 1)}
+      entering={FadeInUp.delay(50)}
+      style={[
+        styles.messageContainer,
+        {
+          backgroundColor: isUser ? colors.accent : colors.card,
+          borderColor: item.pinned ? colors.accent : colors.border,
+          borderWidth: item.pinned ? 2 : 1,
+        },
+        isUser ? styles.userMessage : styles.aiMessage,
+      ]}
     >
-      <Text style={[styles.messageText, { fontSize }, isUser ? styles.userText : styles.aiText]}>
+      <Text style={[styles.messageText, { color: isUser ? '#ffffff' : colors.text }]}>
         {item.text}
       </Text>
       {item.fileInfo && (
         <View style={styles.fileBadge}>
-          <Ionicons name="document" size={16} color={colors.iconSecondary} />
-          <Text style={[styles.fileText, { fontSize: fontSize * 0.8 }]}>{item.fileInfo.name}</Text>
+          <Ionicons name="document-outline" size={14} color={colors.secondary} />
+          <Text style={[styles.fileText, { color: colors.secondary }]}>{item.fileInfo.name}</Text>
         </View>
       )}
-      {item.imageUri && (
-        <Animated.Image source={{ uri: item.imageUri }} style={styles.messageImage} entering={FadeIn} />
-      )}
-      <View style={styles.actionsRow}>
-        {!isUser && (
-          <TouchableOpacity onPress={() => onSpeak(item.text)}>
-            <Ionicons name="volume-high" size={20} color={colors.iconSecondary} />
+      {item.imageUri && <Animated.Image source={{ uri: item.imageUri }} style={styles.messageImage} entering={FadeIn} />}
+      <View style={styles.messageFooter}>
+        <Text style={[styles.timestamp, { color: colors.secondary }]}>{formatTimestamp(item.timestamp)}</Text>
+        <View style={styles.actionsRow}>
+          {!isUser && (
+            <TouchableOpacity onPress={() => onSpeak(item.text)}>
+              <Ionicons name="volume-high-outline" size={16} color={colors.secondary} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => onCopy(item.text)}>
+            <Ionicons name="copy-outline" size={16} color={colors.secondary} />
           </TouchableOpacity>
-        )}
-        <TouchableOpacity onPress={() => onCopy(item.text)}>
-          <Ionicons name="copy" size={20} color={colors.iconSecondary} />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => onShare(item.text)}>
-          <Ionicons name="share" size={20} color={colors.iconSecondary} />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => onPin(item.id)}>
-          <Ionicons name={item.pinned ? 'pin' : 'pin-outline'} size={20} color={colors.tint} />
-        </TouchableOpacity>
+          <TouchableOpacity onPress={() => onShare(item.text)}>
+            <Ionicons name="share-outline" size={16} color={colors.secondary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => onPin(item.id)}>
+            <Ionicons name={item.pinned ? 'pin' : 'pin-outline'} size={16} color={colors.accent} />
+          </TouchableOpacity>
+        </View>
       </View>
     </Animated.View>
   );
 });
 
-const TypingIndicator: React.FC<{ styles: any; colors: Theme }> = React.memo(({ styles, colors }) => {
-  const opacity = useSharedValue(0);
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: withSpring(opacity.value),
-  }));
-
-  useEffect(() => {
-    opacity.value = 1;
-  }, [opacity]);
-
-  return (
-    <Animated.View style={[styles.typingContainer, animatedStyle]}>
-      <ActivityIndicator size="small" color={colors.tint} />
-      <Text style={styles.typingText}>Campus AI réfléchit...</Text>
-    </Animated.View>
-  );
-});
+const TypingIndicator: React.FC<{ colors: any }> = React.memo(({ colors }) => (
+  <Animated.View entering={FadeIn} style={styles.typingContainer}>
+    <ActivityIndicator size="small" color={colors.accent} />
+    <Text style={[styles.typingText, { color: colors.secondary }]}>Campus AI is thinking...</Text>
+  </Animated.View>
+));
 
 const InputBar: React.FC<{
   value: string;
-  styles: any;
-  colors: Theme;
+  colors: any;
   onChangeText: (text: string) => void;
   onSend: () => void;
   onAttach: () => void;
   onGenerateImage: () => void;
   interactionMode: AiInteractionMode;
   onToggleDeepSearch: () => void;
-  onToggleThink: () => void;
-  inputMode: InputMode;
-  onToggleInputMode: () => void;
   isApiLoading: boolean;
-  inputRef: React.RefObject<TextInput>;
 }> = React.memo(({
   value,
-  styles,
   colors,
   onChangeText,
   onSend,
@@ -239,227 +162,115 @@ const InputBar: React.FC<{
   onGenerateImage,
   interactionMode,
   onToggleDeepSearch,
-  onToggleThink,
-  inputMode,
-  onToggleInputMode,
   isApiLoading,
-  inputRef,
 }) => {
   const canSend = value.trim().length > 0 && !isApiLoading;
-  const scale = useSharedValue(1);
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: withSpring(scale.value) }],
-  }));
-
   return (
-    <Animated.View style={[styles.inputContainer, animatedStyle]} entering={FadeIn}>
+    <Animated.View entering={FadeIn} style={[styles.inputContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <TouchableOpacity onPress={onAttach} disabled={isApiLoading}>
-        <Ionicons name="attach" size={24} color={colors.iconSecondary} />
+        <Ionicons name="attach-outline" size={20} color={isApiLoading ? colors.secondary : colors.accent} />
       </TouchableOpacity>
       <TouchableOpacity onPress={onGenerateImage} disabled={isApiLoading}>
-        <Ionicons name="image" size={24} color={colors.iconSecondary} />
+        <Ionicons name="image-outline" size={20} color={isApiLoading ? colors.secondary : colors.accent} />
       </TouchableOpacity>
       <TextInput
-        ref={inputRef}
-        style={styles.input}
+        style={[styles.input, { color: colors.text }]}
         value={value}
         onChangeText={onChangeText}
-        placeholder="Pose une question..."
-        placeholderTextColor={colors.placeholderText}
+        placeholder="Type your question..."
+        placeholderTextColor={colors.secondary}
         multiline
         editable={!isApiLoading}
       />
-      <TouchableOpacity
-        onPress={canSend ? onSend : onToggleInputMode}
-        onPressIn={() => (scale.value = 0.95)}
-        onPressOut={() => (scale.value = 1)}
-      >
-        <Ionicons
-          name={canSend ? 'send' : inputMode === 'text' ? 'mic' : 'keyboard'}
-          size={24}
-          color={canSend ? colors.tint : colors.iconSecondary}
-        />
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={onToggleDeepSearch}
-        style={[styles.modeBtn, interactionMode === 'deepSearch' && styles.modeBtnActive]}
-      >
+      <TouchableOpacity onPress={onToggleDeepSearch}>
         <MaterialCommunityIcons
           name="magnify"
           size={20}
-          color={interactionMode === 'deepSearch' ? colors.textContrast : colors.success}
+          color={interactionMode === 'deepSearch' ? colors.success : colors.secondary}
         />
       </TouchableOpacity>
-      <TouchableOpacity
-        onPress={onToggleThink}
-        style={[styles.modeBtn, interactionMode === 'think' && styles.modeBtnActive]}
-      >
-        <MaterialCommunityIcons
-          name="lightbulb"
-          size={20}
-          color={interactionMode === 'think' ? colors.textContrast : colors.success}
-        />
+      <TouchableOpacity onPress={onSend} disabled={!canSend}>
+        <Ionicons name="send-outline" size={20} color={canSend ? colors.accent : colors.secondary} />
       </TouchableOpacity>
     </Animated.View>
   );
 });
 
+const WelcomeScreen: React.FC<{ colors: any }> = ({ colors }) => (
+  <Animated.View entering={FadeIn} style={[styles.welcomeContainer, { backgroundColor: colors.background }]}>
+    <Ionicons name="school-outline" size={64} color={colors.accent} />
+    <Text style={[styles.welcomeTitle, { color: colors.text }]}>Welcome to Campus AI</Text>
+    <Text style={[styles.welcomeText, { color: colors.secondary }]}>
+      Created by Amara Mehdi to assist you on your university journey. Ask me anything to get started!
+    </Text>
+  </Animated.View>
+);
+
 const SettingsModal: React.FC<{
-  isVisible: boolean;
-  styles: any;
-  colors: Theme;
+  visible: boolean;
+  colors: any;
   onClose: () => void;
+  selectedModel: string;
+  setSelectedModel: (model: string) => void;
   onClearChat: () => void;
-  onShareChat: () => void;
-  onExportPDF: () => void;
-  onExportMarkdown: () => void;
-  onSelectModel: (modelValue: string) => void;
-  currentModel: string;
-  onSelectTheme: (themeName: string) => void;
-  currentTheme: string;
-  customInstructions: string;
-  setCustomInstructions: (text: string) => void;
-  liveSpeechEnabled: boolean;
-  setLiveSpeechEnabled: (enabled: boolean) => void;
-  fontSize: number;
-  setFontSize: (size: number) => void;
-}> = React.memo(({
-  isVisible,
-  styles,
-  colors,
-  onClose,
-  onClearChat,
-  onShareChat,
-  onExportPDF,
-  onExportMarkdown,
-  onSelectModel,
-  currentModel,
-  onSelectTheme,
-  currentTheme,
-  customInstructions,
-  setCustomInstructions,
-  liveSpeechEnabled,
-  setLiveSpeechEnabled,
-  fontSize,
-  setFontSize,
-}) => {
-  const translateY = useSharedValue(300);
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: withSpring(translateY.value) }],
-  }));
-
-  useEffect(() => {
-    translateY.value = isVisible ? 0 : 300;
-  }, [isVisible, translateY]);
-
-  return (
-    <Modal transparent visible={isVisible} animationType="none">
-      <Pressable style={styles.modalBackdrop} onPress={onClose} />
-      <Animated.View style={[styles.settingsModal, animatedStyle]}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Paramètres</Text>
+  onCopyAllChat: () => void;
+}> = React.memo(({ visible, colors, onClose, selectedModel, setSelectedModel, onClearChat, onCopyAllChat }) => (
+  <Modal transparent visible={visible} animationType="slide">
+    <View style={styles.modalOverlay}>
+      <Animated.View entering={FadeIn} style={[styles.settingsContainer, { backgroundColor: colors.card }]}>
+        <View style={styles.settingsHeader}>
+          <Text style={[styles.settingsTitle, { color: colors.text }]}>Settings</Text>
           <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={28} color={colors.iconSecondary} />
+            <Ionicons name="close-outline" size={24} color={colors.secondary} />
           </TouchableOpacity>
         </View>
-        <Text style={styles.sectionTitle}>Modèle IA</Text>
-        {MODELS.map((model) => (
+        <Text style={[styles.settingsLabel, { color: colors.secondary }]}>Select AI Model</Text>
+        {MODELS.map(model => (
           <TouchableOpacity
             key={model.value}
-            style={[styles.optionBtn, currentModel === model.value && styles.optionBtnSelected]}
-            onPress={() => onSelectModel(model.value)}
+            style={[styles.optionButton, { backgroundColor: selectedModel === model.value ? colors.accent : colors.card }]}
+            onPress={() => setSelectedModel(model.value)}
           >
-            <Text style={[styles.optionText, currentModel === model.value && { color: colors.tint }]}>
+            <Text style={[styles.optionText, { color: selectedModel === model.value ? '#ffffff' : colors.text }]}>
               {model.name}
             </Text>
           </TouchableOpacity>
         ))}
-        <Text style={styles.sectionTitle}>Thème</Text>
-        <View style={styles.themeRow}>
-          {Object.keys(THEMES).map((themeName) => (
-            <TouchableOpacity
-              key={themeName}
-              style={[styles.themeBtn, { backgroundColor: THEMES[themeName].tint }, currentTheme === themeName && styles.themeBtnSelected]}
-              onPress={() => onSelectTheme(themeName)}
-            >
-              <Text style={styles.themeText}>{themeName.charAt(0).toUpperCase() + themeName.slice(1)}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <Text style={styles.sectionTitle}>Instructions</Text>
-        <TextInput
-          style={styles.instructionsInput}
-          placeholder="Instructions personnalisées..."
-          placeholderTextColor={colors.placeholderText}
-          value={customInstructions}
-          onChangeText={setCustomInstructions}
-          multiline
-        />
-        <Text style={styles.sectionTitle}>Options</Text>
-        <TouchableOpacity style={styles.optionBtn} onPress={() => setLiveSpeechEnabled(!liveSpeechEnabled)}>
-          <Text style={styles.optionText}>Lecture en direct: {liveSpeechEnabled ? 'Oui' : 'Non'}</Text>
-        </TouchableOpacity>
-        <Slider
-          style={styles.slider}
-          minimumValue={12}
-          maximumValue={20}
-          step={1}
-          value={fontSize}
-          onValueChange={setFontSize}
-          minimumTrackTintColor={colors.tint}
-          maximumTrackTintColor={colors.border}
-          thumbTintColor={colors.tint}
-        />
-        <Text style={styles.sliderLabel}>Taille de police: {fontSize}px</Text>
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.danger }]} onPress={onClearChat}>
-            <Text style={styles.actionText}>Effacer</Text>
+        <View style={styles.settingsActions}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.danger }]} onPress={onClearChat}>
+            <Text style={styles.actionText}>Clear Chat</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.tint }]} onPress={onShareChat}>
-            <Text style={styles.actionText}>Partager</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.tint }]} onPress={onExportPDF}>
-            <Text style={styles.actionText}>PDF</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.tint }]} onPress={onExportMarkdown}>
-            <Text style={styles.actionText}>MD</Text>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.accent }]} onPress={onCopyAllChat}>
+            <Text style={styles.actionText}>Copy All</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
-    </Modal>
-  );
-});
+    </View>
+  </Modal>
+));
 
-// --- Main Screen ---
+// Main Screen
 export default function AIScreen() {
-  const [theme, setTheme] = useState<string>('dark');
-  const colors = useMemo(() => THEMES[theme], [theme]);
-  const styles = useMemo(() => getAIStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
-
+  const colorScheme = useColorScheme() === 'dark' ? 'dark' : 'light';
+  const colors = colorScheme === 'dark' ? darkColors : lightColors;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState<string>('');
   const [isApiLoading, setIsApiLoading] = useState<boolean>(false);
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
-  const [isSettingsVisible, setIsSettingsVisible] = useState<boolean>(false);
-  const [customInstructions, setCustomInstructions] = useState<string>('');
   const [interactionMode, setInteractionMode] = useState<AiInteractionMode>('normal');
-  const [inputMode, setInputMode] = useState<InputMode>('text');
-  const [liveSpeechEnabled, setLiveSpeechEnabled] = useState<boolean>(false);
-  const [fontSize, setFontSize] = useState<number>(16);
-
+  const [isSettingsVisible, setIsSettingsVisible] = useState<boolean>(false);
   const flatListRef = useRef<FlatList>(null);
-  const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [msgs, model, thm, instr, fnt] = await AsyncStorage.multiGet(Object.values(STORAGE_KEYS));
-        setMessages(msgs[1] ? JSON.parse(msgs[1]) : [{ id: generateId(), text: WELCOME_MESSAGE, sender: 'ai', timestamp: Date.now() }]);
+        const [msgs, model] = await AsyncStorage.multiGet([STORAGE_KEYS.MESSAGES, STORAGE_KEYS.MODEL]);
+        const loadedMessages = msgs[1] ? JSON.parse(msgs[1]) : [
+          { id: generateId(), text: WELCOME_MESSAGE, sender: 'ai', timestamp: Date.now() }
+        ];
+        setMessages(loadedMessages);
         setSelectedModel(model[1] || DEFAULT_MODEL);
-        setTheme(thm[1] || 'dark');
-        setCustomInstructions(instr[1] || '');
-        setFontSize(fnt[1] ? parseInt(fnt[1], 10) : 16);
       } catch (error) {
         console.error('Error loading data:', error);
       }
@@ -471,129 +282,91 @@ export default function AIScreen() {
     const saveData = async () => {
       try {
         await AsyncStorage.multiSet([
-          [STORAGE_KEYS.MESSAGES, JSON.stringify(messages.filter((m) => !m.isLoading))],
+          [STORAGE_KEYS.MESSAGES, JSON.stringify(messages.filter(m => !m.isLoading))],
           [STORAGE_KEYS.MODEL, selectedModel],
-          [STORAGE_KEYS.THEME, theme],
-          [STORAGE_KEYS.INSTRUCTIONS, customInstructions],
-          [STORAGE_KEYS.FONT_SIZE, fontSize.toString()],
         ]);
       } catch (error) {
         console.error('Error saving data:', error);
       }
     };
     if (!isApiLoading) saveData();
-  }, [messages, selectedModel, theme, customInstructions, fontSize, isApiLoading]);
+  }, [messages, selectedModel, isApiLoading]);
 
-  const callAPI = useCallback(
-    async (prompt: string, fileInfo?: ChatMessage['fileInfo'], generateImage: boolean = false): Promise<{ text: string; imageUri?: string }> => {
-      const modelObj = MODELS.find((m) => m.value === selectedModel);
-      const isGemini = modelObj?.api === 'gemini';
-      const systemPrompt = `Langue: Français. Tu es Campus AI. Instructions: ${customInstructions || 'Standard.'}`;
-      const history = messages.slice(-8).map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', content: m.text }));
+  const callGeminiAPI = useCallback(async (prompt: string, fileInfo?: ChatMessage['fileInfo'], generateImage: boolean = false) => {
+    const systemPrompt = "You are Campus AI, developed by Amara Mehdi to assist with university-related queries. Respond in French unless specified otherwise.";
+    const history = messages.slice(-5).map(m => ({ parts: [{ text: m.text }], role: m.sender === 'user' ? 'user' : 'model' }));
+    const contents = [
+      { parts: [{ text: systemPrompt }], role: 'user' },
+      ...history,
+      { parts: [{ text: prompt }], role: 'user' },
+    ];
 
-      if (isGemini) {
-        const contents = [
-          { parts: [{ text: systemPrompt }], role: 'user' },
-          ...history.map((m) => ({ parts: [{ text: m.content }], role: m.role })),
-          { parts: [{ text: prompt }], role: 'user' },
-        ];
-        if (fileInfo?.uri) {
-          const data = await FileSystem.readAsStringAsync(fileInfo.uri, { encoding: FileSystem.EncodingType.Base64 });
-          contents.push({ parts: [{ inlineData: { mimeType: fileInfo.type, data } }], role: 'user' });
-        }
-        const url = `${GEMINI_API_URL}/${selectedModel}:generateContent?key=${GEMINI_API_KEY}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents,
-            generationConfig: { maxOutputTokens: 65536, temperature: 0.7 },
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error?.message || 'Gemini Error');
-        const text = data.candidates?.[0]?.content?.parts[0]?.text || '';
-        return { text, imageUri: generateImage ? 'https://via.placeholder.com/200' : undefined };
-      } else {
-        const response = await fetch(AIML_API_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${AIML_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: prompt }],
-            max_tokens: 1024,
-            temperature: 0.7,
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error?.message || 'AIML Error');
-        return { text: data.choices[0].message.content.trim() };
-      }
-    },
-    [messages, selectedModel, customInstructions]
-  );
+    if (fileInfo?.uri) {
+      const data = await FileSystem.readAsStringAsync(fileInfo.uri, { encoding: FileSystem.EncodingType.Base64 });
+      contents.push({ parts: [{ inlineData: { mimeType: fileInfo.type, data } }], role: 'user' });
+    }
 
-  const handleSend = useCallback(
-    async (fileInfo?: ChatMessage['fileInfo']) => {
-      if (!inputText.trim() && !fileInfo) return;
-      const userMsg: ChatMessage = { id: generateId(), text: inputText, sender: 'user', timestamp: Date.now(), fileInfo };
-      setMessages((prev) => [...prev, userMsg]);
-      setInputText('');
-      setIsApiLoading(true);
+    const url = `${GEMINI_API_URL}/${selectedModel}:generateContent?key=${GEMINI_API_KEY}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents,
+        generationConfig: { maxOutputTokens: 2048, temperature: 0.7 },
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || 'API Error');
+    const text = data.candidates?.[0]?.content?.parts[0]?.text || 'No response';
+    return { text, imageUri: generateImage ? 'https://via.placeholder.com/200' : undefined };
+  }, [messages, selectedModel]);
 
-      try {
-        const prompt =
-          interactionMode === 'deepSearch' && fileInfo
-            ? `Résume ce document: ${inputText}`
-            : interactionMode === 'think'
-            ? `Réfléchis: ${inputText}`
-            : inputText;
-        const { text, imageUri } = await callAPI(prompt, fileInfo);
-        const aiMsg: ChatMessage = { id: generateId(), text, sender: 'ai', timestamp: Date.now(), imageUri };
-        setMessages((prev) => [...prev, aiMsg]);
-        if (liveSpeechEnabled) Speech.speak(text, { language: 'fr-FR' });
-      } catch (error) {
-        const errorMsg: ChatMessage = {
-          id: generateId(),
-          text: `Erreur: ${(error as Error).message}`,
-          sender: 'ai',
-          timestamp: Date.now(),
-          isError: true,
-        };
-        setMessages((prev) => [...prev, errorMsg]);
-      } finally {
-        setIsApiLoading(false);
-      }
-    },
-    [inputText, interactionMode, callAPI, liveSpeechEnabled]
-  );
-
-  const handleGenerateImage = useCallback(async () => {
-    const prompt = inputText.trim() || 'Image aléatoire';
-    const userMsg: ChatMessage = { id: generateId(), text: prompt, sender: 'user', timestamp: Date.now() };
-    setMessages((prev) => [...prev, userMsg]);
+  const handleSend = useCallback(async (fileInfo?: ChatMessage['fileInfo']) => {
+    if (!inputText.trim() && !fileInfo) return;
+    const userMsg: ChatMessage = { id: generateId(), text: inputText, sender: 'user', timestamp: Date.now(), fileInfo };
+    setMessages(prev => [...prev, userMsg]);
     setInputText('');
     setIsApiLoading(true);
+
     try {
-      const { text, imageUri } = await callAPI(prompt, undefined, true);
-      const aiMsg: ChatMessage = { id: generateId(), text: text || 'Image générée', sender: 'ai', timestamp: Date.now(), imageUri };
-      setMessages((prev) => [...prev, aiMsg]);
+      const prompt = interactionMode === 'deepSearch' && fileInfo ? `Résume ce document: ${inputText}` : inputText;
+      const { text, imageUri } = await callGeminiAPI(prompt, fileInfo);
+      setMessages(prev => [...prev, { id: generateId(), text, sender: 'ai', timestamp: Date.now(), imageUri }]);
     } catch (error) {
-      const errorMsg: ChatMessage = {
+      setMessages(prev => [...prev, {
         id: generateId(),
         text: `Erreur: ${(error as Error).message}`,
         sender: 'ai',
         timestamp: Date.now(),
         isError: true,
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      }]);
+    } finally {
+      setIsApiLoading(false);
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [inputText, interactionMode, callGeminiAPI]);
+
+  const handleGenerateImage = useCallback(async () => {
+    const prompt = inputText.trim() || 'Génère une image aléatoire';
+    const userMsg: ChatMessage = { id: generateId(), text: prompt, sender: 'user', timestamp: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
+    setInputText('');
+    setIsApiLoading(true);
+    try {
+      const { text, imageUri } = await callGeminiAPI(prompt, undefined, true);
+      setMessages(prev => [...prev, { id: generateId(), text, sender: 'ai', timestamp: Date.now(), imageUri }]);
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        id: generateId(),
+        text: `Erreur: ${(error as Error).message}`,
+        sender: 'ai',
+        timestamp: Date.now(),
+        isError: true,
+      }]);
     } finally {
       setIsApiLoading(false);
     }
-  }, [inputText, callAPI]);
+  }, [inputText, callGeminiAPI]);
 
   const handleAttach = useCallback(async () => {
     try {
@@ -606,45 +379,26 @@ export default function AIScreen() {
           type: asset.mimeType ?? 'unknown',
           uri: asset.uri,
         };
-        handleSend(fileInfo);
+        Alert.alert('Attach File', `Attach "${asset.name}"?`, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Attach', onPress: () => handleSend(fileInfo) },
+        ]);
       }
     } catch (error) {
-      console.error('Error attaching file:', error);
       Alert.alert('Erreur', "Impossible d'attacher le fichier.");
     }
   }, [handleSend]);
 
-  const toggleInteractionMode = useCallback((mode: AiInteractionMode) => {
-    setInteractionMode((current) => (current === mode ? 'normal' : mode));
-  }, []);
+  const toggleDeepSearch = useCallback(() => setInteractionMode(prev => (prev === 'deepSearch' ? 'normal' : 'deepSearch')), []);
 
-  const toggleInputMode = useCallback(() => {
-    setInputMode((current) => {
-      const newMode = current === 'text' ? 'voice' : 'text';
-      if (newMode === 'voice') Alert.alert('Info', 'Entrée vocale bientôt disponible.');
-      return newMode;
-    });
-  }, []);
-
-  const speakText = useCallback((text: string) => {
-    Speech.speak(text, { language: 'fr-FR' });
-  }, []);
-
+  const speakText = useCallback((text: string) => Speech.speak(text, { language: 'fr-FR' }), []);
   const copyText = useCallback(async (text: string) => {
     await Clipboard.setStringAsync(text);
-    Alert.alert('Copié !');
+    Alert.alert('Copied to clipboard!');
   }, []);
-
-  const shareText = useCallback(async (text: string) => {
-    try {
-      await Share.share({ message: text });
-    } catch (error) {
-      Alert.alert('Erreur', "Impossible de partager le message.");
-    }
-  }, []);
-
+  const shareText = useCallback(async (text: string) => await Share.share({ message: text }), []);
   const pinMessage = useCallback((id: string) => {
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pinned: !m.pinned } : m)));
+    setMessages(prev => prev.map(m => (m.id === id ? { ...m, pinned: !m.pinned } : m)));
   }, []);
 
   const clearChat = useCallback(() => {
@@ -652,233 +406,157 @@ export default function AIScreen() {
     setIsSettingsVisible(false);
   }, []);
 
-  const shareChat = useCallback(async () => {
-    try {
-      await Share.share({ message: messages.map((m) => `${m.sender}: ${m.text}`).join('\n') });
-      setIsSettingsVisible(false);
-    } catch (error) {
-      Alert.alert('Erreur', "Impossible de partager la discussion.");
-    }
+  const copyAllChat = useCallback(async () => {
+    const chatText = messages.map(m => `${m.sender === 'user' ? 'You' : 'AI'}: ${m.text}`).join('\n');
+    await Clipboard.setStringAsync(chatText);
+    Alert.alert('Entire chat copied!');
+    setIsSettingsVisible(false);
   }, [messages]);
 
-  const exportPDF = useCallback(async () => {
-    try {
-      const html = `<html><body><h1>Chat</h1>${messages.map((m) => `<p><b>${m.sender}:</b> ${m.text}</p>`).join('')}</body></html>`;
-      const { uri } = await Print.printToFileAsync({ html });
-      await Sharing.shareAsync(uri);
-      setIsSettingsVisible(false);
-    } catch (error) {
-      Alert.alert('Erreur', "Impossible d'exporter en PDF.");
-    }
+  const isChatEmpty = useMemo(() => {
+    return messages.length === 1 && messages[0].text === WELCOME_MESSAGE && messages[0].sender === 'ai';
   }, [messages]);
-
-  const exportMarkdown = useCallback(async () => {
-    try {
-      const md = messages.map((m) => `**${m.sender}**: ${m.text}`).join('\n\n');
-      const uri = `${FileSystem.documentDirectory}chat_${generateId()}.md`;
-      await FileSystem.writeAsStringAsync(uri, md);
-      await Sharing.shareAsync(uri);
-      setIsSettingsVisible(false);
-    } catch (error) {
-      Alert.alert('Erreur', "Impossible d'exporter en Markdown.");
-    }
-  }, [messages]);
-
-  const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages]);
-  const chatMessages = useMemo(() => messages.filter((m) => !m.pinned && !m.isLoading), [messages]);
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen
         options={{
-          headerShown: true,
-          title: 'Campus AI',
-          headerStyle: { backgroundColor: colors.gradientStart },
-          headerTitleStyle: { color: colors.textContrast, fontWeight: 'bold' },
-          headerTintColor: colors.textContrast,
+          headerTitle: 'Campus AI',
+          headerStyle: { backgroundColor: colors.background },
+          headerTitleStyle: { color: colors.text, fontSize: 20, fontWeight: 'bold' },
+          headerTintColor: colors.accent,
           headerRight: () => (
             <TouchableOpacity onPress={() => setIsSettingsVisible(true)}>
-              <Ionicons name="settings" size={24} color={colors.textContrast} />
+              <Ionicons name="settings-outline" size={24} color={colors.accent} />
             </TouchableOpacity>
           ),
         }}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.container}
-        keyboardVerticalOffset={insets.top + 60}
+        style={styles.flex}
+        keyboardVerticalOffset={insets.top + 64}
       >
-        {pinnedMessages.length > 0 && (
-          <Animated.View style={styles.pinnedContainer} entering={FadeIn}>
-            <Text style={styles.pinnedTitle}>Épinglés</Text>
-            <FlatList
-              data={pinnedMessages}
-              renderItem={({ item }) => (
-                <MessageBubble
-                  item={item}
-                  styles={styles}
-                  colors={colors}
-                  onSpeak={speakText}
-                  onCopy={copyText}
-                  onShare={shareText}
-                  onPin={pinMessage}
-                  fontSize={fontSize}
-                />
-              )}
-              keyExtractor={(item) => item.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-            />
-          </Animated.View>
+        {isChatEmpty ? (
+          <WelcomeScreen colors={colors} />
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={({ item }) => (
+              <MessageBubble
+                item={item}
+                colors={colors}
+                onSpeak={speakText}
+                onCopy={copyText}
+                onShare={shareText}
+                onPin={pinMessage}
+              />
+            )}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.chatContent}
+          />
         )}
-        <FlatList
-          ref={flatListRef}
-          data={chatMessages}
-          renderItem={({ item }) => (
-            <MessageBubble
-              item={item}
-              styles={styles}
-              colors={colors}
-              onSpeak={speakText}
-              onCopy={copyText}
-              onShare={shareText}
-              onPin={pinMessage}
-              fontSize={fontSize}
-            />
-          )}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.chatContent}
-          ListEmptyComponent={<Text style={styles.emptyText}>Commence à discuter !</Text>}
-        />
-        {isApiLoading && <TypingIndicator styles={styles} colors={colors} />}
+        {isApiLoading && <TypingIndicator colors={colors} />}
         <InputBar
           value={inputText}
-          styles={styles}
           colors={colors}
           onChangeText={setInputText}
           onSend={handleSend}
           onAttach={handleAttach}
           onGenerateImage={handleGenerateImage}
           interactionMode={interactionMode}
-          onToggleDeepSearch={() => toggleInteractionMode('deepSearch')}
-          onToggleThink={() => toggleInteractionMode('think')}
-          inputMode={inputMode}
-          onToggleInputMode={toggleInputMode}
+          onToggleDeepSearch={toggleDeepSearch}
           isApiLoading={isApiLoading}
-          inputRef={inputRef}
         />
       </KeyboardAvoidingView>
       <SettingsModal
-        isVisible={isSettingsVisible}
-        styles={styles}
+        visible={isSettingsVisible}
         colors={colors}
         onClose={() => setIsSettingsVisible(false)}
+        selectedModel={selectedModel}
+        setSelectedModel={setSelectedModel}
         onClearChat={clearChat}
-        onShareChat={shareChat}
-        onExportPDF={exportPDF}
-        onExportMarkdown={exportMarkdown}
-        onSelectModel={setSelectedModel}
-        currentModel={selectedModel}
-        onSelectTheme={setTheme}
-        currentTheme={theme}
-        customInstructions={customInstructions}
-        setCustomInstructions={setCustomInstructions}
-        liveSpeechEnabled={liveSpeechEnabled}
-        setLiveSpeechEnabled={setLiveSpeechEnabled}
-        fontSize={fontSize}
-        setFontSize={setFontSize}
+        onCopyAllChat={copyAllChat}
       />
     </SafeAreaView>
   );
 }
 
-// --- Styles ---
-const getAIStyles = (colors: Theme) =>
-  StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: colors.background },
-    container: { flex: 1, padding: 15 },
-    pinnedContainer: { marginBottom: 10 },
-    pinnedTitle: { fontSize: 16, fontWeight: 'bold', color: colors.textSecondary, marginBottom: 5 },
-    chatContent: { paddingBottom: 20 },
-    emptyText: { textAlign: 'center', color: colors.textSecondary, fontSize: 16, marginTop: 50 },
-    messageContainer: {
-      maxWidth: '80%',
-      marginVertical: 5,
-      padding: 12,
-      borderRadius: 15,
-      backgroundColor: colors.cardBackground,
-      shadowColor: colors.shadowColor,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 2,
-    },
-    userMessage: { alignSelf: 'flex-end', backgroundColor: colors.tint },
-    aiMessage: { alignSelf: 'flex-start' },
-    pinnedMessage: { borderWidth: 1, borderColor: colors.tint },
-    messageText: { color: colors.text },
-    userText: { color: colors.textContrast },
-    aiText: { color: colors.text },
-    fileBadge: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
-    fileText: { color: colors.textSecondary, marginLeft: 5 },
-    messageImage: { width: 150, height: 150, borderRadius: 10, marginTop: 10 },
-    actionsRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 5, gap: 10 },
-    typingContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 10 },
-    typingText: { color: colors.textSecondary, marginLeft: 10, fontStyle: 'italic' },
-    inputContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.inputBackground,
-      borderRadius: 25,
-      padding: 10,
-      marginBottom: 10,
-      shadowColor: colors.shadowColor,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.2,
-      shadowRadius: 5,
-      elevation: 3,
-    },
-    input: { flex: 1, color: colors.text, paddingHorizontal: 10, maxHeight: 100 },
-    modeBtn: { padding: 5, borderRadius: 15, backgroundColor: colors.cardBackground, marginLeft: 5 },
-    modeBtnActive: { backgroundColor: colors.success },
-    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
-    settingsModal: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: colors.cardBackground,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      padding: 20,
-      maxHeight: '80%',
-    },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-    modalTitle: { fontSize: 20, fontWeight: 'bold', color: colors.text },
-    sectionTitle: { fontSize: 16, fontWeight: '600', color: colors.textSecondary, marginVertical: 10 },
-    optionBtn: {
-      padding: 10,
-      borderRadius: 10,
-      backgroundColor: colors.inputBackground,
-      marginVertical: 5,
-    },
-    optionBtnSelected: { borderWidth: 1, borderColor: colors.tint },
-    optionText: { color: colors.text },
-    themeRow: { flexDirection: 'row', gap: 10 },
-    themeBtn: { padding: 10, borderRadius: 10 },
-    themeBtnSelected: { borderWidth: 2, borderColor: colors.textContrast },
-    themeText: { color: colors.textContrast, fontWeight: 'bold' },
-    instructionsInput: {
-      backgroundColor: colors.inputBackground,
-      borderRadius: 10,
-      padding: 10,
-      color: colors.text,
-      height: 80,
-      marginBottom: 10,
-    },
-    slider: { width: '100%', marginVertical: 10 },
-    sliderLabel: { textAlign: 'center', color: colors.textSecondary },
-    actionRow: { flexDirection: 'row', gap: 10, marginTop: 15 },
-    actionBtn: { flex: 1, padding: 10, borderRadius: 10, alignItems: 'center' },
-    actionText: { color: colors.textContrast, fontWeight: 'bold' },
-  });
+// Styles
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  flex: { flex: 1 },
+  chatContent: { paddingHorizontal: 12, paddingVertical: 16 },
+  messageContainer: {
+    maxWidth: '80%',
+    marginVertical: 6,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  userMessage: { alignSelf: 'flex-end' },
+  aiMessage: { alignSelf: 'flex-start' },
+  messageText: { fontSize: 16, lineHeight: 20, fontWeight: '400' },
+  fileBadge: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  fileText: { marginLeft: 4, fontSize: 12, fontStyle: 'italic' },
+  messageImage: { width: 140, height: 140, borderRadius: 8, marginTop: 8 },
+  messageFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  timestamp: { fontSize: 11, fontWeight: '300' },
+  actionsRow: { flexDirection: 'row', gap: 10 },
+  typingContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 10 },
+  typingText: { marginLeft: 6, fontSize: 12, fontStyle: 'italic' },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 20,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  input: { flex: 1, fontSize: 16, maxHeight: 100, paddingVertical: 2 },
+  welcomeContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  welcomeTitle: { fontSize: 26, fontWeight: 'bold', marginTop: 16 },
+  welcomeText: { fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  settingsContainer: {
+    padding: 16,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  settingsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  settingsTitle: { fontSize: 18, fontWeight: '600' },
+  settingsLabel: { fontSize: 12, marginBottom: 8, fontWeight: '500' },
+  optionButton: {
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 0,
+  },
+  optionText: { fontSize: 14, fontWeight: '500' },
+  settingsActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  actionButton: { flex: 1, padding: 10, borderRadius: 8, alignItems: 'center' },
+  actionText: { color: '#ffffff', fontSize: 14, fontWeight: '500' },
+});

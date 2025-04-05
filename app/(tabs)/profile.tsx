@@ -264,7 +264,7 @@ function ProfileScreenContent() {
   const actions = useMemo(() => [
     { icon: 'star-outline', text: t.favorites, onPress: () => router.push('/favorites'), id: 'favorites' },
     { icon: 'share-outline', text: t.share, onPress: shareApp, id: 'share' },
-    { icon: 'help-circle-outline', text: t.help, onPress: () => router.push('/(tabs)/help'), id: 'help' },
+    { icon: 'help-circle-outline', text: t.help, onPress: () => router.push('../help'), id: 'help' },
     { icon: 'log-out-outline', text: t.logout, onPress: handleLogout, danger: true, id: 'logout' },
   ], [router, shareApp, handleLogout, t]);
 
@@ -338,13 +338,13 @@ function ProfileScreenContent() {
             <ActionItem
               icon="lock-closed-outline"
               text={t.password}
-              onPress={() => router.push('/(tabs)/change-password')}
+              onPress={() => router.push('../change-password')}
               colors={colors}
             />
             <ActionItem
               icon="notifications-outline"
               text={t.notifications}
-              onPress={() => router.push('/(tabs)/notifications')}
+              onPress={() => router.push('../notifications')}
               colors={colors}
             />
             <ActionItem
